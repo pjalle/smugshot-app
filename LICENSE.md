@@ -6,7 +6,7 @@ FSL-1.1-MIT
 
 ## Notice
 
-Copyright 2026 The Smugshot authors
+Copyright 2026 Mathias Tønder
 
 ## Terms and Conditions
 
