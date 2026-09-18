@@ -104,6 +104,7 @@ const (
 	srcCopy, captureBlt                                                = 0x00CC0020, 0x40000000
 	cfUnicodeText, gmemMoveable                                        = 13, 0x2
 	menuOpen, menuSettings, menuQuit, menuAgain, menuSound, menuBanner = 1, 2, 3, 4, 5, 6
+	menuUpdates                                                        = 7
 	menuRecent                                                         = 10 // + the index in the recent list
 	mfSeparator, mfPopup, mfChecked, mfGrayed                          = 0x800, 0x10, 0x8, 0x1
 )
@@ -312,6 +313,9 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			exec.Command("explorer", root()).Start()
 		case menuSettings:
 			exec.Command("notepad", ensureSettingsFile()).Start()
+		case menuUpdates:
+			// Smugshot never goes online itself: the address is handed to the browser.
+			exec.Command("rundll32", "url.dll,FileProtocolHandler", "https://smugshot.io").Start()
 		case menuAgain:
 			if lastPath != "" {
 				setClipboard(*loadSettings().Prefix + lastPath)
@@ -618,6 +622,7 @@ func showTrayMenu(hwnd uintptr) {
 	pAppendMenu.Call(menu, mfSeparator, 0, 0)
 	item(0, menuSettings, "Settings…")
 	item(0, menuOpen, "Open smugshots folder")
+	item(0, menuUpdates, "Check for updates…")
 	pAppendMenu.Call(menu, mfSeparator, 0, 0)
 	item(0, menuQuit, "Quit Smugshot")
 	var p point

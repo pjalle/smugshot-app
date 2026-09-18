@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 NAME="Smugshot"
 # A release build sets these; on their own they give the everyday build for this Mac.
 IDENTITY="${SMUGSHOT_IDENTITY:-Smugshot Self-Signed}"
-VERSION="${SMUGSHOT_VERSION:-0.2.0}"
+# Without one, the newest version the changelog names.
+VERSION="${SMUGSHOT_VERSION:-$(grep -m1 -oE "^## [0-9]+\.[0-9]+\.[0-9]+" CHANGELOG.md | cut -c4-)}"
 APP="build/$NAME.app"
 
 if [[ "${SMUGSHOT_UNIVERSAL:-}" == "1" ]]; then
@@ -23,6 +24,14 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$NAME"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# "What's new" in the menu shows this: the changelog without the lines that are not about the app, and
+# without a heading that has nothing under it (an empty Unreleased).
+awk '
+  /^- (For people working on Smugshot|smugshot\.io|`[a-z-]+\.sh`)/ || /^Newest first\./ { next }
+  /^## / { heading = $0; next }
+  heading != "" && NF { print heading; print ""; heading = "" }
+  heading == "" { print }
+' CHANGELOG.md > "$APP/Contents/Resources/WhatsNew.md"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

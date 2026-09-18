@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotKey: HotKey?
     private var escapeKey: HotKey?
     private let settingsWindow = SettingsWindow()
+    private let whatsNewWindow = WhatsNewWindow()
     private var sweepTimer: Timer?
 
     /// The shot.md most recently put on the clipboard, for "Copy last smugshot again".
@@ -61,9 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// given rectangle on the main screen ("x,y,w,h" in points from the top-left) without hands on the mouse:
     ///   swift -e 'import Foundation; DistributedNotificationCenter.default().postNotificationName(.init("com.pjalle.smugshot.test"), object: "100,100,400,300", userInfo: nil, deliverImmediately: true)'
     /// The clipboard is left alone; the path is written to ~/.smugshots/last-test.txt.
+    /// With object "whats-new" it opens the What's new window instead.
     private func installTestHook() {
         guard UserDefaults.standard.bool(forKey: "enableTestHook") else { return }
-        DistributedNotificationCenter.default().addObserver(forName: .init("com.pjalle.smugshot.test"), object: nil, queue: .main) { [capturer] note in
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.pjalle.smugshot.test"), object: nil, queue: .main) { [capturer, whatsNewWindow] note in
+            // object "whats-new" opens that window instead, to look at it without the menu.
+            if note.object as? String == "whats-new" { Task { @MainActor in whatsNewWindow.show() }; return }
             let numbers = (note.object as? String ?? "").split(separator: ",").compactMap { Double($0) }
             guard numbers.count == 4, let screen = NSScreen.screens.first else { return }
             let rect = CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
@@ -262,6 +266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let login = menu.addItem(withTitle: "Start at login", action: #selector(toggleLogin), keyEquivalent: "")
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(.separator())
+        menu.addItem(withTitle: "What's new", action: #selector(openWhatsNew), keyEquivalent: "")
+        menu.addItem(withTitle: "Check for updates… (you have \(WhatsNewWindow.version))", action: #selector(checkForUpdates), keyEquivalent: "")
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Smugshot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
@@ -297,6 +304,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleQuiet() { Settings.quiet.toggle() }
 
     @objc private func openSettings() { settingsWindow.show() }
+
+    @objc private func openWhatsNew() { whatsNewWindow.show() }
+
+    /// Smugshot never goes online itself. This hands the address to the browser; the page names the newest version.
+    @objc private func checkForUpdates() { NSWorkspace.shared.open(URL(string: "https://smugshot.io")!) }
 
     @objc private func openFolder() {
         Store.prepare()

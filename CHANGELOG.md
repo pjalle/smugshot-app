@@ -5,6 +5,14 @@ Newest first. Written for the person using the tool, not the person reading the 
 ## Unreleased
 
 
+## 0.3.2 (2026-09-18)
+
+The changelog in the app, a way to look for updates, and the source made public.
+
+- **What's new** in the menu shows what changed in each version, in a small window. It is read from the app itself, not from the internet.
+- **Check for updates…** in the menu shows the version you have and opens smugshot.io in your browser, where the newest version is named. Smugshot still never goes online itself, so it does not check or update on its own. On Windows the tray menu has the same item; built and passes its tests, not yet tried on a Windows machine.
+- The source is public: https://github.com/pjalle/smugshot-app. Read it, build it yourself, or point your agent at it to check what Smugshot does.
+
 ## 0.3.1 (2026-09-18)
 
 The first version with a Windows download.

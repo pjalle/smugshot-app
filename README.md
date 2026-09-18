@@ -22,7 +22,7 @@ Mac (macOS 15 or later) is the full version. There is a first Windows version wi
 
 To cancel: Esc, a right-click, a click without dragging, or the hotkey again.
 
-The menu bar menu has **Copy last smugshot again** for one more question about the same thing, **Recent smugshots** with the last five (a thumbnail and the app; hold Option to show one in Finder instead), and **Quiet** for calls and screen shares: no sound, no icon flash.
+The menu bar menu has **Copy last smugshot again** for one more question about the same thing, **Recent smugshots** with the last five (a thumbnail and the app; hold Option to show one in Finder instead), and **Quiet** for calls and screen shares: no sound, no icon flash. **What's new** shows what changed in each version. **Check for updates…** shows the version you have and opens smugshot.io in your browser, where the newest version is named; Smugshot itself never goes online, so it does not check or update on its own.
 
 The word in front of the path is there on purpose. A message that starts with `/` is read as a command by Claude Code and other chat tools.
 
@@ -103,15 +103,15 @@ defaults delete com.pjalle.smugshot folder                      # back to the de
 
 ## Working on it
 
-- `Sources/Smugshot/`: `HotKey` (system hotkey), `Capturer` (the picture), `Overlay` (the drag layer), `Renderer` (full.png and crop.png), `Accessibility` (what was there), `TextReader` (text from the close-up), `Browser` (the web element), `Store` (the folder, cleanup, shot.md), `Settings` (the settings, the retention presets, the shortcut and key names), `SettingsWindow`, `AppDelegate` (the gesture and the menu), `MenuBarIcon`.
+- `Sources/Smugshot/`: `HotKey` (system hotkey), `Capturer` (the picture), `Overlay` (the drag layer), `Renderer` (full.png and crop.png), `Accessibility` (what was there), `TextReader` (text from the close-up), `Browser` (the web element), `Store` (the folder, cleanup, shot.md), `Settings` (the settings, the retention presets, the shortcut and key names), `SettingsWindow`, `WhatsNewWindow` (the changelog in the app; `build.sh` puts it there, without the lines that are not about the app), `AppDelegate` (the gesture and the menu), `MenuBarIcon`.
 - `agents/claude-skill/`: the Claude Code skill. `design/chosen/`: the icon, drawn from geometry by `python3 scripts/draw-icon.py` (needs Pillow); `swift scripts/make-icon.swift` then rebuilds `Resources/AppIcon.icns`.
-- Testing without hands on the mouse: `defaults write com.pjalle.smugshot enableTestHook -bool true`, restart, and see the comment above `installTestHook` in `AppDelegate.swift`.
+- Testing without hands on the mouse: `defaults write com.pjalle.smugshot enableTestHook -bool true`, restart, and see the comment above `installTestHook` in `AppDelegate.swift`. `./scripts/build.sh` without `SMUGSHOT_VERSION` gives the app the newest version number in `CHANGELOG.md`.
 
 ## Windows
 
 `windows/` holds a first Windows version written in Go, built from any machine with `./scripts/build-windows.sh`. Press **Ctrl + Shift + 1**, drag, paste; it writes the same three files to `%USERPROFILE%\.smugshots\` and sits in the system tray.
 
-Its settings are a small file, `%APPDATA%\Smugshot\settings.json`, opened from **Settings…** in the tray menu: the folder, `keepFor` (the same values as on the Mac), the clipboard text, the `hotkey` (`ctrl+shift+1`, `ctrl+alt+s`, `win+shift+f9`; needs a restart), and `sound` and `banner` for the tink and the small "Copied" banner after a smugshot. Other changes apply to the next smugshot. The tray menu also has "Copy last smugshot again", the last five smugshots, and the Sound and Banner switches.
+Its settings are a small file, `%APPDATA%\Smugshot\settings.json`, opened from **Settings…** in the tray menu: the folder, `keepFor` (the same values as on the Mac), the clipboard text, the `hotkey` (`ctrl+shift+1`, `ctrl+alt+s`, `win+shift+f9`; needs a restart), and `sound` and `banner` for the tink and the small "Copied" banner after a smugshot. Other changes apply to the next smugshot. The tray menu also has "Copy last smugshot again", the last five smugshots, the Sound and Banner switches, and "Check for updates…", which opens smugshot.io in your browser.
 
 It has the gesture only: no "what was there", no text reading, no web element yet. It was first run on a real Windows machine on 2026-09-18, and the gesture works. When it starts, a banner at the bottom right says it is running and names the hotkey; starting it a second time only shows "already running".
 
@@ -135,3 +135,5 @@ The app is source-available under the [Functional Source License](LICENSE.md) (F
 The Claude Code skill in `agents/claude-skill/` and the shape of `shot.md` are MIT from the start (`agents/claude-skill/LICENSE`), so other tools and agents are free to read and write smugshots.
 
 Questions, bugs, ideas: open an issue, or hello@smugshot.io.
+
+Please open an issue rather than a pull request. This repo is written fresh from a private one at each release, so a change merged here would be lost at the next. A good fix described in an issue gets made there, with thanks.
