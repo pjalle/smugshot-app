@@ -12,6 +12,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     private let keepPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let prefixField = NSTextField(string: "")
     private let preview = NSTextField(labelWithString: "")
+    private let pastePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let pasteNote = NSTextField(wrappingLabelWithString: "")
     private let nameControlsBox = NSButton(checkboxWithTitle: "What was there: the control under the drag and its parents", target: nil, action: nil)
     private let readTextBox = NSButton(checkboxWithTitle: "Text read from the close-up", target: nil, action: nil)
     private let webElementBox = NSButton(checkboxWithTitle: "Web element: the page element's HTML, from the browser", target: nil, action: nil)
@@ -83,6 +85,11 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         preview.lineBreakMode = .byTruncatingMiddle
         preview.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        // Paste into
+        pastePopUp.target = self
+        pastePopUp.action = #selector(pasteChanged)
+        small(pasteNote)
+
         // Gather
         for box in [nameControlsBox, readTextBox, webElementBox] {
             box.target = self
@@ -117,6 +124,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             [label("Clipboard text:"), prefixField],
             [NSGridCell.emptyContentView, prefixNote],
             [NSGridCell.emptyContentView, preview],
+            [label("Paste into:"), pastePopUp],
+            [NSGridCell.emptyContentView, pasteNote],
             [label("Gather:"), gather],
             [NSGridCell.emptyContentView, gatherNote],
             [label("Sound:"), soundPopUp],
@@ -126,8 +135,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         grid.columnSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).width = 460
-        for row in [2, 4, 6, 9, 11, 12] { grid.row(at: row).topPadding = 10 }
-        for note in [shortcutNote, folderNote, keepNote, prefixNote, gatherNote] { note.preferredMaxLayoutWidth = 460 }
+        for row in [2, 4, 6, 9, 11, 13, 14] { grid.row(at: row).topPadding = 10 }
+        for note in [shortcutNote, folderNote, keepNote, prefixNote, pasteNote, gatherNote] { note.preferredMaxLayoutWidth = 460 }
         grid.translatesAutoresizingMaskIntoConstraints = false
 
         let content = NSView()
@@ -167,12 +176,39 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             : "The Claude Code skill was allowed to read ~/.smugshots only. With another folder, Claude Code asks before reading each smugshot."
         keepPopUp.selectItem(at: Retention.allCases.firstIndex(of: Settings.retention) ?? 0)
         prefixField.stringValue = Settings.prefix
+        loadPasteInto()
         nameControlsBox.state = Settings.nameControls ? .on : .off
         readTextBox.state = Settings.readText ? .on : .off
         webElementBox.state = Settings.webElement ? .on : .off
         soundPopUp.selectItem(at: Sound.allCases.firstIndex(of: Settings.sound) ?? 0)
         quietBox.state = Settings.quiet ? .on : .off
         updatePreview()
+    }
+
+    /// Off, the app you came from, then the installed apps people talk to agents in, then any other app.
+    private func loadPasteInto() {
+        let current = Settings.pasteInto
+        pastePopUp.removeAllItems()
+        pastePopUp.addItem(withTitle: "Off")
+        pastePopUp.lastItem?.representedObject = ""
+        pastePopUp.addItem(withTitle: "The app I came from")
+        pastePopUp.lastItem?.representedObject = "previous"
+        var apps = KnownApp.installed
+        if case .app(let bundleID) = current, !apps.contains(where: { $0.bundleID == bundleID }) {
+            apps.append((KnownApp.name(bundleID: bundleID), bundleID))
+        }
+        if !apps.isEmpty { pastePopUp.menu?.addItem(.separator()) }
+        for app in apps {
+            pastePopUp.addItem(withTitle: app.name)
+            pastePopUp.lastItem?.representedObject = app.bundleID
+        }
+        pastePopUp.menu?.addItem(.separator())
+        pastePopUp.addItem(withTitle: "Other App…")
+        pastePopUp.lastItem?.representedObject = "other"
+        pastePopUp.selectItem(at: pastePopUp.itemArray.firstIndex { ($0.representedObject as? String) == current.rawValue } ?? 0)
+
+        let key = KeyName.of(Settings.shortcut.keyCode)
+        pasteNote.stringValue = "After the drag, Smugshot brings that app to the front and presses ⌘V, so the path lands where the cursor is. It never presses Enter. While the screen is frozen, \(key) on its own switches this on or off for that one smugshot. Needs the Accessibility permission."
     }
 
     private func updatePreview() {
@@ -243,6 +279,36 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     @objc private func keepChanged() {
         guard let raw = keepPopUp.selectedItem?.representedObject as? String, let retention = Retention(rawValue: raw) else { return }
         Settings.retention = retention
+    }
+
+    @objc private func pasteChanged() {
+        guard let raw = pastePopUp.selectedItem?.representedObject as? String else { return }
+        if raw == "other" {
+            chooseOtherApp()
+            return
+        }
+        Settings.pasteInto = PasteInto(rawValue: raw)
+        if Settings.pasteInto != .off, !Accessibility.isAllowed { Accessibility.askForPermission() }
+        load()
+    }
+
+    /// Any app on the disk. Its bundle identifier is what is stored.
+    private func chooseOtherApp() {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.prompt = "Paste Into This App"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            if response == .OK, let url = panel.url, let bundleID = Bundle(url: url)?.bundleIdentifier {
+                Settings.pasteInto = .app(bundleID: bundleID)
+                if !Accessibility.isAllowed { Accessibility.askForPermission() }
+            }
+            self?.load()
+        }
     }
 
     @objc private func gatherChanged() {

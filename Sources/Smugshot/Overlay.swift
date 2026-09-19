@@ -72,6 +72,7 @@ final class OverlayView: NSView {
 /// One drag layer per screen, so the drag can start on whichever screen the user goes to.
 final class Overlay {
     private var panels: [OverlayPanel] = []
+    private var hints: [HintView] = []
 
     /// `frozen` holds the picture already taken of each screen. It is shown under the drag layer, so the screen
     /// stands still the way it does for the Mac's own Command+Shift+4: a hover state or a tooltip stays visible
@@ -103,6 +104,7 @@ final class Overlay {
             } else {
                 panel.contentView = view
             }
+            if let content = panel.contentView { hints.append(Self.addHint(to: content)) }
             panel.setFrame(screen.frame, display: true)
             panel.orderFrontRegardless()
             panels.append(panel)
@@ -110,9 +112,54 @@ final class Overlay {
         NSCursor.crosshair.set()
     }
 
+    /// One line at the top of every screen, or nothing: "Pastes into Ghostty after the drag · 1 switches it off".
+    func showHint(_ text: String?) {
+        for hint in hints { hint.show(text) }
+    }
+
+    private static func addHint(to view: NSView) -> HintView {
+        let hint = HintView()
+        view.addSubview(hint)
+        return hint
+    }
+
     func hide() {
         panels.forEach { $0.orderOut(nil) }
         panels = []
+        hints = []
         NSCursor.arrow.set()
+    }
+}
+
+/// A dark pill with one line of white text, near the top of a screen.
+final class HintView: NSView {
+    private let label = NSTextField(labelWithString: "")
+    private let inset = NSSize(width: 14, height: 8)
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
+        layer?.cornerRadius = 9
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.textColor = .white
+        addSubview(label)
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// The drag goes through it to the layer underneath.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func show(_ text: String?) {
+        guard let text, let superview else { isHidden = true; return }
+        label.stringValue = text
+        label.sizeToFit()
+        let size = NSSize(width: label.frame.width + inset.width * 2, height: label.frame.height + inset.height * 2)
+        frame = NSRect(x: ((superview.bounds.width - size.width) / 2).rounded(), y: superview.bounds.height - 72 - size.height,
+                       width: size.width, height: size.height)
+        label.frame = NSRect(origin: NSPoint(x: inset.width, y: inset.height), size: label.frame.size)
+        isHidden = false
     }
 }

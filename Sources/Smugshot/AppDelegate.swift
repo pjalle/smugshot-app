@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let overlay = Overlay()
     private var hotKey: HotKey?
     private var escapeKey: HotKey?
+    /// While the screen is frozen, the shortcut's key on its own switches "Paste it for me" for this one smugshot.
+    private var pasteKey: HotKey?
     private let settingsWindow = SettingsWindow()
     private let whatsNewWindow = WhatsNewWindow()
     private var sweepTimer: Timer?
@@ -19,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var active = false
     private var captureTasks: [ObjectIdentifier: Task<CGImage, Error>] = [:]
     private var startedAt = Date()
+    /// The app in front when the shortcut was pressed: where "the app I came from" pastes.
+    private var cameFrom: NSRunningApplication?
+    /// Whether this smugshot is pasted for the user: the setting, unless the key switched it for this one.
+    private var pasteThisShot = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setUpStatusItem()
@@ -35,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let allowed = CGPreflightScreenCaptureAccess()
         NSLog("Smugshot: screen recording allowed = \(allowed)")
         if !allowed { CGRequestScreenCaptureAccess() }
-        if Settings.nameControls, !Accessibility.isAllowed { Accessibility.askForPermission() }
+        if Settings.nameControls || Settings.pasteInto != .off, !Accessibility.isAllowed { Accessibility.askForPermission() }
         Accessibility.startWarming()
         installTestHook()
         Task { await capturer.refresh() }
@@ -62,12 +68,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// given rectangle on the main screen ("x,y,w,h" in points from the top-left) without hands on the mouse:
     ///   swift -e 'import Foundation; DistributedNotificationCenter.default().postNotificationName(.init("com.pjalle.smugshot.test"), object: "100,100,400,300", userInfo: nil, deliverImmediately: true)'
     /// The clipboard is left alone; the path is written to ~/.smugshots/last-test.txt.
-    /// With object "whats-new" it opens the What's new window instead.
+    /// With object "whats-new" it opens the What's new window instead, and "settings" the Settings window.
     private func installTestHook() {
         guard UserDefaults.standard.bool(forKey: "enableTestHook") else { return }
-        DistributedNotificationCenter.default().addObserver(forName: .init("com.pjalle.smugshot.test"), object: nil, queue: .main) { [capturer, whatsNewWindow] note in
-            // object "whats-new" opens that window instead, to look at it without the menu.
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.pjalle.smugshot.test"), object: nil, queue: .main) { [capturer, whatsNewWindow, settingsWindow] note in
+            // object "whats-new" or "settings" opens that window instead, to look at it without the menu.
             if note.object as? String == "whats-new" { Task { @MainActor in whatsNewWindow.show() }; return }
+            if note.object as? String == "settings" { Task { @MainActor in settingsWindow.show() }; return }
             let numbers = (note.object as? String ?? "").split(separator: ",").compactMap { Double($0) }
             guard numbers.count == 4, let screen = NSScreen.screens.first else { return }
             let rect = CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
@@ -95,6 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !active, !screens.isEmpty else { return }
         active = true
         startedAt = Date()
+        let front = NSWorkspace.shared.frontmostApplication
+        cameFrom = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
+        pasteThisShot = Settings.pasteInto != .off
 
         // Every screen is pictured now, as the user saw it when they decided to point.
         for screen in screens {
@@ -110,8 +120,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for (id, task) in tasks { frozen[id] = try? await task.value }
             guard self.active, self.startedAt == started else { return }
             self.overlay.show(on: screens, frozen: frozen) { [weak self] screen, rect in self?.finish(screen, rect) }
+            self.overlay.showHint(self.pasteHint())
         }
         escapeKey = HotKey(keyCode: UInt32(kVK_Escape), modifiers: 0, onDown: { [weak self] in self?.finish(nil, nil) })
+        pasteKey = HotKey(keyCode: Settings.shortcut.keyCode, modifiers: 0, onDown: { [weak self] in self?.togglePaste() })
+    }
+
+    /// The shortcut's key, pressed on its own while the screen is frozen.
+    private func togglePaste() {
+        guard active else { return }
+        pasteThisShot.toggle()
+        overlay.showHint(pasteHint())
+    }
+
+    /// Where this smugshot would be pasted, or nil when there is nowhere.
+    private func pasteDestination() -> Paster.Destination? {
+        switch Settings.pasteInto {
+        case .off, .previousApp: return cameFrom.map { .app($0) }
+        case .app(let bundleID): return .bundle(bundleID)
+        }
+    }
+
+    /// The line at the top of the frozen screen. Nothing when pasting is off and was not touched.
+    private func pasteHint() -> String? {
+        let key = KeyName.of(Settings.shortcut.keyCode)
+        if pasteThisShot {
+            guard let destination = pasteDestination() else { return "No app to paste into · \(key) switches pasting off" }
+            return "Pastes into \(destination.name) after the drag · \(key) switches it off"
+        }
+        return Settings.pasteInto == .off ? nil : "Not pasting this time · \(key) switches it back on"
     }
 
     private func finish(_ screen: NSScreen?, _ rect: CGRect?) {
@@ -119,6 +156,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         overlay.hide()
         escapeKey?.unregister()
         escapeKey = nil
+        pasteKey?.unregister()
+        pasteKey = nil
+        let destination = pasteThisShot ? pasteDestination() : nil
 
         let tasks = captureTasks
         captureTasks = [:]
@@ -139,6 +179,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if !Settings.quiet {
                     Settings.sound.play()
                     self.flash("checkmark.circle.fill")
+                }
+                if let destination, await !Paster.paste(into: destination) {
+                    // The path is on the clipboard all the same; the user pastes it by hand.
+                    if !Settings.quiet { self.flash("exclamationmark.triangle.fill") }
                 }
             } catch {
                 NSLog("Smugshot: \(error)")
@@ -237,6 +281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if Settings.nameControls, !Accessibility.isAllowed {
             menu.addItem(withTitle: "⚠️ Needs Accessibility permission to name controls…", action: #selector(openAccessibilitySettings), keyEquivalent: "")
+        }
+        if Settings.pasteInto != .off, !Accessibility.isAllowed {
+            menu.addItem(withTitle: "⚠️ Needs Accessibility permission to paste for you…", action: #selector(openAccessibilitySettings), keyEquivalent: "")
         }
         menu.addItem(.separator())
         let recent = Store.recent(limit: 5)

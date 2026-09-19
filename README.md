@@ -22,6 +22,8 @@ Mac (macOS 15 or later) is the full version. There is a first Windows version wi
 
 To cancel: Esc, a right-click, a click without dragging, or the hotkey again.
 
+**Paste it for me** (off by default; the **Paste into** setting): after the drag, Smugshot brings an app to the front and presses ⌘V there, so the path lands where the cursor is. It never presses Enter; you still send it. Pick "The app I came from" (the app in front when you pressed the shortcut, usually your terminal) or a fixed app. While the screen is frozen, a line at the top says where it will paste, and pressing the shortcut's key on its own (**1** for the default shortcut) switches pasting on or off for that one smugshot. It also works when the setting is off: press **1** and that one smugshot is pasted into the app you came from.
+
 The menu bar menu has **Copy last smugshot again** for one more question about the same thing, **Recent smugshots** with the last five (a thumbnail and the app; hold Option to show one in Finder instead), and **Quiet** for calls and screen shares: no sound, no icon flash. **What's new** shows what changed in each version. **Check for updates…** shows the version you have and opens smugshot.io in your browser, where the newest version is named; Smugshot itself never goes online, so it does not check or update on its own.
 
 The word in front of the path is there on purpose. A message that starts with `/` is read as a command by Claude Code and other chat tools.
@@ -62,7 +64,7 @@ Then give it its permissions. All three are asked for once and survive rebuilds:
 | Permission | Where | What stops working without it |
 |---|---|---|
 | Screen Recording | System Settings > Privacy & Security > Screen & System Audio Recording. Restart Smugshot once after switching it on. | Everything. |
-| Accessibility | System Settings > Privacy & Security > Accessibility | "What was there" says it has no permission. Pictures and text still work. |
+| Accessibility | System Settings > Privacy & Security > Accessibility | "What was there" says it has no permission, and "Paste into" cannot paste. Pictures and text still work. |
 | Control your browser | macOS asks the first time you drag over a browser. Also switch on **Allow JavaScript from Apple Events** in the browser (Brave, Chrome, Arc: View > Developer; Edge, Vivaldi: Tools > Developer; Safari: Settings > Developer). | "Web element" says what to switch on. Everything else still works. |
 
 Teach Claude Code to read a smugshot without being told how:
@@ -83,6 +85,7 @@ Why the certificate: without a stable signature, macOS sees every rebuild as a n
 | Save to | The folder smugshots are written to, each in its own timestamped folder. Smugshot only ever deletes folders named like a smugshot, so a folder that holds other things is safe. The Claude Code skill was allowed to read `~/.smugshots` only; with another folder Claude Code asks before reading each smugshot. | `~/.smugshots` |
 | Keep for | How long a smugshot stays on disk, counted from when it was taken: 1 minute, 2, 5, 10, 30 minutes, 1 hour, 1 day, 1 week, or Forever. Agents read the files within seconds of the paste, so a few minutes is plenty. | 1 day |
 | Clipboard text | The text in front of the path, spaces included. It is there because a message that starts with `/` is read as a command by Claude Code and other chat tools. Empty is allowed. | `smugshot: ` |
+| Paste into | After the drag, bring this app to the front and press ⌘V there. **Off**, **The app I came from**, one of the installed terminals, editors and chat apps (Terminal, Ghostty, iTerm, Warp, kitty, WezTerm, Alacritty, Visual Studio Code, Cursor, Windsurf, Zed, Claude, ChatGPT), or **Other App…**. The shortcut's key on its own, while the screen is frozen, switches it for one smugshot. Needs Accessibility. The paste goes wherever that app's cursor is, so keep it on the chat. | Off |
 | Sound | The sound after a smugshot: Screen Capture, Shutter, Frog, Pop, Sent or Tink. Picking one plays it. All of them ship with macOS. | Screen Capture |
 | Quiet | No sound and no icon flash after a smugshot. Also in the menu. | off |
 | Gather | Three switches for what goes into shot.md besides the pictures, the app and the window: **What was there** (needs Accessibility; with it off, Smugshot stops asking for that permission), **Text read from the close-up**, and **Web element** (the browser asks once). Switching a slow one off makes a smugshot land faster. | all on |
@@ -93,6 +96,7 @@ The same settings from the command line, with no restart needed:
 defaults write com.pjalle.smugshot folder -string "$HOME/Desktop/shots"
 defaults write com.pjalle.smugshot keepFor -string 5m           # 1m, 2m, 5m, 10m, 30m, 1h, 1d, 1w, forever
 defaults write com.pjalle.smugshot prefix -string "look: "
+defaults write com.pjalle.smugshot pasteInto -string previous    # or a bundle id such as com.mitchellh.ghostty; delete to switch off
 defaults write com.pjalle.smugshot readText -bool false         # also nameControls, webElement
 defaults write com.pjalle.smugshot quiet -bool true
 defaults write com.pjalle.smugshot sound -string pop            # screen-capture, shutter, frog, pop, sent, tink
@@ -103,7 +107,7 @@ defaults delete com.pjalle.smugshot folder                      # back to the de
 
 ## Working on it
 
-- `Sources/Smugshot/`: `HotKey` (system hotkey), `Capturer` (the picture), `Overlay` (the drag layer), `Renderer` (full.png and crop.png), `Accessibility` (what was there), `TextReader` (text from the close-up), `Browser` (the web element), `Store` (the folder, cleanup, shot.md), `Settings` (the settings, the retention presets, the shortcut and key names), `SettingsWindow`, `WhatsNewWindow` (the changelog in the app; `build.sh` puts it there, without the lines that are not about the app), `AppDelegate` (the gesture and the menu), `MenuBarIcon`.
+- `Sources/Smugshot/`: `HotKey` (system hotkey), `Capturer` (the picture), `Overlay` (the drag layer), `Renderer` (full.png and crop.png), `Accessibility` (what was there), `Paster` (paste it for me: bring an app forward and press ⌘V, and the list of known apps), `TextReader` (text from the close-up), `Browser` (the web element), `Store` (the folder, cleanup, shot.md), `Settings` (the settings, the retention presets, the shortcut and key names), `SettingsWindow`, `WhatsNewWindow` (the changelog in the app; `build.sh` puts it there, without the lines that are not about the app), `AppDelegate` (the gesture and the menu), `MenuBarIcon`.
 - `agents/claude-skill/`: the Claude Code skill. `design/chosen/`: the icon, drawn from geometry by `python3 scripts/draw-icon.py` (needs Pillow); `swift scripts/make-icon.swift` then rebuilds `Resources/AppIcon.icns`.
 - Testing without hands on the mouse: `defaults write com.pjalle.smugshot enableTestHook -bool true`, restart, and see the comment above `installTestHook` in `AppDelegate.swift`. `./scripts/build.sh` without `SMUGSHOT_VERSION` gives the app the newest version number in `CHANGELOG.md`.
 
@@ -113,7 +117,7 @@ defaults delete com.pjalle.smugshot folder                      # back to the de
 
 Its settings are a small file, `%APPDATA%\Smugshot\settings.json`, opened from **Settings…** in the tray menu: the folder, `keepFor` (the same values as on the Mac), the clipboard text, the `hotkey` (`ctrl+shift+1`, `ctrl+alt+s`, `win+shift+f9`; needs a restart), and `sound` and `banner` for the tink and the small "Copied" banner after a smugshot. Other changes apply to the next smugshot. The tray menu also has "Copy last smugshot again", the last five smugshots, the Sound and Banner switches, and "Check for updates…", which opens smugshot.io in your browser.
 
-It has the gesture only: no "what was there", no text reading, no web element yet. It was first run on a real Windows machine on 2026-09-18, and the gesture works. When it starts, a banner at the bottom right says it is running and names the hotkey; starting it a second time only shows "already running".
+It has the gesture only: no "what was there", no text reading, no web element, no "paste into" yet. It was first run on a real Windows machine on 2026-09-18, and the gesture works. Since 2026-09-19 it also runs on a Windows laptop of ours, with 0.3.2, after Defender was told to allow it. When it starts, a banner at the bottom right says it is running and names the hotkey; starting it a second time only shows "already running".
 
 
 ## Check it yourself

@@ -4,6 +4,12 @@ Newest first. Written for the person using the tool, not the person reading the 
 
 ## Unreleased
 
+## 0.3.3 (2026-09-19)
+
+Paste it for me, and the visitor numbers on smugshot.io.
+
+- Paste it for me now waits until the app has a window ready for the keyboard before it presses ⌘V, so the path lands when the app was on another Space, or was not running yet.
+- **Paste it for me.** A new setting, **Paste into**: after the drag, Smugshot brings an app to the front (the app you came from, or a fixed one: Terminal, Ghostty, iTerm, VS Code, Cursor and others) and presses ⌘V there, so the path lands in the chat. It never presses Enter. Off by default. While the screen is frozen, press the shortcut's key on its own (1) to switch it on or off for that one smugshot; a line at the top says where it will paste. Mac only. Needs the Accessibility permission.
 - Each version is now also a release on the public repo, with the same Mac and Windows files as smugshot.io.
 
 ## 0.3.2 (2026-09-18)

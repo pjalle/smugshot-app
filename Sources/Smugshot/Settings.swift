@@ -95,6 +95,14 @@ enum Settings {
     }
     static let defaultSound = Sound.screenCapture
 
+    /// Paste it for me: after a smugshot, bring an app to the front and press Command+V there. Off by default.
+    /// `defaults write com.pjalle.smugshot pasteInto -string previous` for the app you came from, or a bundle
+    /// identifier such as `com.mitchellh.ghostty` for a fixed one. `defaults delete ... pasteInto` switches it off.
+    static var pasteInto: PasteInto {
+        get { PasteInto(rawValue: defaults.string(forKey: "pasteInto") ?? "") }
+        set { store(newValue == .off ? nil : newValue.rawValue, for: "pasteInto") }
+    }
+
     /// What lands on the clipboard for a given shot.md path.
     static func clipboardText(for path: String) -> String { prefix + path }
 
@@ -106,7 +114,31 @@ enum Settings {
     }
 }
 
-/// How long a smugshot stays on disk. The raw value is what is stored and what `defaults write` takes.
+/// Where "Paste it for me" pastes. The raw value is what is stored and what `defaults write` takes.
+enum PasteInto: Equatable {
+    case off
+    /// The app that was in front when the shortcut was pressed.
+    case previousApp
+    /// A fixed app, by bundle identifier.
+    case app(bundleID: String)
+
+    init(rawValue: String) {
+        switch rawValue {
+        case "": self = .off
+        case "previous": self = .previousApp
+        default: self = .app(bundleID: rawValue)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .off: return ""
+        case .previousApp: return "previous"
+        case .app(let bundleID): return bundleID
+        }
+    }
+}
+
 /// The sounds to choose from. All of them ship with macOS, so nothing is bundled.
 enum Sound: String, CaseIterable {
     case screenCapture = "screen-capture", shutter, frog, pop, sent, tink
@@ -142,6 +174,7 @@ enum Sound: String, CaseIterable {
     }
 }
 
+/// How long a smugshot stays on disk. The raw value is what is stored and what `defaults write` takes.
 enum Retention: String, CaseIterable {
     case oneMinute = "1m"
     case twoMinutes = "2m"
