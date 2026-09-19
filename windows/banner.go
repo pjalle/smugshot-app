@@ -4,12 +4,14 @@ package main
 
 import (
 	_ "embed"
+	"os"
+	"path/filepath"
 	"syscall"
 	"unsafe"
 )
 
 // After a smugshot: a small dark banner at the bottom right, "Copied. Paste it into the chat.", which fades
-// out after a moment, and a soft tink. Each can be switched off in settings.json or the tray menu.
+// out after a moment, and a short sound. Each can be switched off in Settings or the tray menu.
 
 //go:embed tink.wav
 var tinkWAV []byte
@@ -43,7 +45,20 @@ var (
 	bannerBrush uintptr
 )
 
-func playTink() {
+// playSound plays the named sound: the bundled tink, or one of the sounds that ship with Windows. An unknown
+// name, or a Windows sound that is not there, gives the tink; "off" gives nothing.
+func playSound(name string) {
+	if name == string(soundOff) {
+		return
+	}
+	if snd, ok := soundByName(name); ok && snd.File != "" {
+		path := filepath.Join(os.Getenv("WINDIR"), "Media", snd.File)
+		if _, err := os.Stat(path); err == nil {
+			file, _ := syscall.UTF16PtrFromString(path)
+			pPlaySound.Call(uintptr(unsafe.Pointer(file)), 0, 0x20000|0x1|0x2) // SND_FILENAME, SND_ASYNC, SND_NODEFAULT
+			return
+		}
+	}
 	pPlaySound.Call(uintptr(unsafe.Pointer(&tinkWAV[0])), 0, 0x4|0x1|0x2) // SND_MEMORY, SND_ASYNC, SND_NODEFAULT
 }
 

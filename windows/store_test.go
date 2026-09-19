@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,6 +87,34 @@ func TestParseSettingsValues(t *testing.T) {
 	s = parseSettings([]byte(`{"sound": false, "banner": false}`))
 	if s.soundOn() || s.bannerOn() {
 		t.Errorf("sound and banner should be off when set to false")
+	}
+}
+
+func TestSoundSetting(t *testing.T) {
+	cases := []struct {
+		data string
+		on   bool
+		name string
+	}{
+		{`{}`, true, "feed"},
+		{`{"sound": true}`, true, "feed"},
+		{`{"sound": false}`, false, "off"},
+		{`{"sound": "off"}`, false, "off"},
+		{`{"sound": "Menu"}`, true, "menu"},
+		{`{"sound": "tink"}`, true, "tink"},
+		{`{"sound": "no such sound"}`, true, "feed"},
+		{`{"sound": 3}`, true, "feed"}, // not a bool, not a string: the file is treated as broken, so the defaults
+	}
+	for _, c := range cases {
+		s := parseSettings([]byte(c.data))
+		if s.soundOn() != c.on || s.soundName() != c.name {
+			t.Errorf("parseSettings(%s): on %v name %q; want on %v name %q", c.data, s.soundOn(), s.soundName(), c.on, c.name)
+		}
+	}
+	for _, snd := range sounds {
+		if snd.Name != strings.ToLower(snd.Name) || snd.Title == "" {
+			t.Errorf("sound %+v: names are lower case and titles are not empty", snd)
+		}
 	}
 }
 

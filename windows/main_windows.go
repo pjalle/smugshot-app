@@ -6,7 +6,6 @@
 package main
 
 import (
-	"encoding/json"
 	"image"
 	"os"
 	"os/exec"
@@ -67,6 +66,8 @@ var (
 	pGetCursorPos        = user32.NewProc("GetCursorPos")
 	pGetClientRect       = user32.NewProc("GetClientRect")
 	pSetDpiAwareness     = user32.NewProc("SetProcessDpiAwarenessContext")
+	pUnregisterHotKey    = user32.NewProc("UnregisterHotKey")
+	pIsDialogMessage     = user32.NewProc("IsDialogMessageW")
 
 	pCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	pCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
@@ -92,21 +93,23 @@ var (
 )
 
 const (
-	wmDestroy, wmPaint, wmKeyDown, wmHotKey, wmCommand                 = 0x0002, 0x000F, 0x0100, 0x0312, 0x0111
-	wmLButtonDown, wmLButtonUp, wmMouseMove, wmRButtonDown             = 0x0201, 0x0202, 0x0200, 0x0204
-	wmTray                                                             = 0x0400 + 1
-	wmAlreadyRunning                                                   = 0x0400 + 2 // sent by a second copy before it quits
-	wsPopup                                                            = 0x80000000
-	wsExTopmost, wsExToolWindow, wsExLayered                           = 0x8, 0x80, 0x80000
-	modNoRepeat                                                        = 0x4000
-	vkEscape                                                           = 0x1B
-	smXVirtual, smYVirtual, smCXVirtual, smCYVirtual                   = 76, 77, 78, 79
-	srcCopy, captureBlt                                                = 0x00CC0020, 0x40000000
-	cfUnicodeText, gmemMoveable                                        = 13, 0x2
-	menuOpen, menuSettings, menuQuit, menuAgain, menuSound, menuBanner = 1, 2, 3, 4, 5, 6
-	menuUpdates                                                        = 7
-	menuRecent                                                         = 10 // + the index in the recent list
-	mfSeparator, mfPopup, mfChecked, mfGrayed                          = 0x800, 0x10, 0x8, 0x1
+	wmDestroy, wmPaint, wmKeyDown, wmHotKey, wmCommand      = 0x0002, 0x000F, 0x0100, 0x0312, 0x0111
+	wmLButtonDown, wmLButtonUp, wmMouseMove, wmRButtonDown  = 0x0201, 0x0202, 0x0200, 0x0204
+	wmTray                                                  = 0x0400 + 1
+	wmAlreadyRunning                                        = 0x0400 + 2 // sent by a second copy before it quits
+	wsPopup                                                 = 0x80000000
+	wsExTopmost, wsExToolWindow, wsExLayered                = 0x8, 0x80, 0x80000
+	modNoRepeat                                             = 0x4000
+	vkEscape                                                = 0x1B
+	smXVirtual, smYVirtual, smCXVirtual, smCYVirtual        = 76, 77, 78, 79
+	srcCopy, captureBlt                                     = 0x00CC0020, 0x40000000
+	cfUnicodeText, gmemMoveable                             = 13, 0x2
+	menuOpen, menuSettings, menuQuit, menuAgain, menuBanner = 1, 2, 3, 4, 6
+	menuUpdates, menuHint                                   = 7, 8
+	menuRecent                                              = 10 // + the index in the recent list
+	menuSoundOff                                            = 19
+	menuSound                                               = 20 // + the index in the sounds list
+	mfSeparator, mfPopup, mfChecked, mfGrayed               = 0x800, 0x10, 0x8, 0x1
 )
 
 type point struct{ X, Y int32 }
@@ -229,8 +232,7 @@ func main() {
 	makeBanner(instance)
 
 	hotkey := loadSettings().Hotkey
-	modifiers, key, _ := parseHotkey(hotkey) // loadSettings already fell back to the default if it did not parse
-	if ok, _, _ := pRegisterHotKey.Call(overlay, 1, uintptr(modifiers|modNoRepeat), uintptr(key)); ok == 0 {
+	if !registerHotkey(hotkey) {
 		pMessageBeep.Call(0x10) // the hotkey is taken by something else
 	}
 	addTrayIcon(hotkey)
@@ -242,10 +244,27 @@ func main() {
 		if int32(r) <= 0 {
 			break
 		}
+		if settingsWindow != 0 { // Tab between the fields, Esc to close
+			if handled, _, _ := pIsDialogMessage.Call(settingsWindow, uintptr(unsafe.Pointer(&m))); handled != 0 {
+				continue
+			}
+		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		pDispatchMessage.Call(uintptr(unsafe.Pointer(&m)))
 	}
 	removeTrayIcon()
+}
+
+// registerHotkey makes hotkey the one that starts a smugshot, in place of the previous one. False when it
+// does not parse or another program holds it.
+func registerHotkey(hotkey string) bool {
+	modifiers, key, err := parseHotkey(hotkey)
+	if err != nil {
+		return false
+	}
+	pUnregisterHotKey.Call(overlay, 1)
+	ok, _, _ := pRegisterHotKey.Call(overlay, 1, uintptr(modifiers|modNoRepeat), uintptr(key))
+	return ok != 0
 }
 
 func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
@@ -312,7 +331,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			os.MkdirAll(root(), 0o700)
 			exec.Command("explorer", root()).Start()
 		case menuSettings:
-			exec.Command("notepad", ensureSettingsFile()).Start()
+			openSettingsWindow()
 		case menuUpdates:
 			// Smugshot never goes online itself: the address is handed to the browser.
 			exec.Command("rundll32", "url.dll,FileProtocolHandler", "https://smugshot.io").Start()
@@ -320,12 +339,15 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			if lastPath != "" {
 				setClipboard(*loadSettings().Prefix + lastPath)
 			}
-		case menuSound:
-			toggleSetting("sound", loadSettings().soundOn())
+		case menuSoundOff:
+			chooseSound(string(soundOff))
 		case menuBanner:
-			toggleSetting("banner", loadSettings().bannerOn())
+			setSetting("banner", !loadSettings().bannerOn())
+			refreshSettingsWindow()
 		default:
-			if id := int(wParam&0xFFFF) - menuRecent; id >= 0 && id < len(recentDirs) {
+			if id := int(wParam&0xFFFF) - menuSound; id >= 0 && id < len(sounds) {
+				chooseSound(sounds[id].Name)
+			} else if id := int(wParam&0xFFFF) - menuRecent; id >= 0 && id < len(recentDirs) {
 				lastPath = filepath.Join(recentDirs[id], "shot.md")
 				setClipboard(*loadSettings().Prefix + lastPath)
 			}
@@ -422,7 +444,7 @@ func finish() {
 	setClipboard(*cfg.Prefix + path)
 	lastPath = path
 	if cfg.soundOn() {
-		playTink()
+		playSound(cfg.soundName())
 	}
 	if cfg.bannerOn() {
 		showCopied()
@@ -430,17 +452,11 @@ func finish() {
 	sweep()
 }
 
-// toggleSetting flips one true/false key in the settings file, keeping the rest of the file as it is.
-func toggleSetting(key string, current bool) {
-	path := ensureSettingsFile()
-	var raw map[string]any
-	if json.Unmarshal(readFile(path), &raw) != nil || raw == nil {
-		raw = map[string]any{}
-	}
-	raw[key] = !current
-	if data, err := json.MarshalIndent(raw, "", "  "); err == nil {
-		os.WriteFile(path, append(data, '\n'), 0o600)
-	}
+// chooseSound saves the sound and plays it once, so the person hears what they picked.
+func chooseSound(name string) {
+	setSetting("sound", name)
+	playSound(name)
+	refreshSettingsWindow()
 }
 
 func captureDesktop(x, y, w, h int32) *image.RGBA {
@@ -524,6 +540,15 @@ func trayData() *notifyIconData {
 	return d
 }
 
+// setTrayTip renames the tray icon's tip after the hotkey changed.
+func setTrayTip(hotkey string) {
+	d := trayData()
+	d.Flags = 0x4 // tip
+	tip, _ := syscall.UTF16FromString("Smugshot: press " + hotkey + ", drag, paste the path")
+	copy(d.Tip[:], tip)
+	pShellNotifyIcon.Call(1, uintptr(unsafe.Pointer(d))) // NIM_MODIFY
+}
+
 func addTrayIcon(hotkey string) {
 	d := trayData()
 	d.Flags = 0x1 | 0x2 | 0x4 // message, icon, tip
@@ -593,6 +618,8 @@ func showTrayMenu(hwnd uintptr) {
 		pAppendMenu.Call(menu, flags, id, uintptr(unsafe.Pointer(t)))
 	}
 	cfg := loadSettings()
+	item(mfGrayed, menuHint, "Press "+hotkeyLabel(cfg.Hotkey)+", drag, paste the path")
+	pAppendMenu.Call(menu, mfSeparator, 0, 0)
 	recentDirs = recent(cfg.Folder, 5)
 	if lastPath == "" && len(recentDirs) > 0 {
 		lastPath = filepath.Join(recentDirs[0], "shot.md")
@@ -617,7 +644,16 @@ func showTrayMenu(hwnd uintptr) {
 		}
 		return 0
 	}
-	item(checked(cfg.soundOn()), menuSound, "Sound")
+	soundMenu, _, _ := pCreatePopupMenu.Call() // destroyed with its parent
+	for i, snd := range sounds {
+		t, _ := syscall.UTF16PtrFromString(snd.Title)
+		pAppendMenu.Call(soundMenu, checked(cfg.soundOn() && cfg.soundName() == snd.Name), uintptr(menuSound+i), uintptr(unsafe.Pointer(t)))
+	}
+	pAppendMenu.Call(soundMenu, mfSeparator, 0, 0)
+	off, _ := syscall.UTF16PtrFromString("Off")
+	pAppendMenu.Call(soundMenu, checked(!cfg.soundOn()), menuSoundOff, uintptr(unsafe.Pointer(off)))
+	soundTitle, _ := syscall.UTF16PtrFromString("Sound")
+	pAppendMenu.Call(menu, mfPopup, soundMenu, uintptr(unsafe.Pointer(soundTitle)))
 	item(checked(cfg.bannerOn()), menuBanner, "Banner")
 	pAppendMenu.Call(menu, mfSeparator, 0, 0)
 	item(0, menuSettings, "Settings…")

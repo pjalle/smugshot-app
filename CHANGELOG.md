@@ -4,6 +4,14 @@ Newest first. Written for the person using the tool, not the person reading the 
 
 ## Unreleased
 
+## 0.3.4 (2026-09-20)
+
+Windows: a Settings window and a choice of sounds.
+
+- **Windows: a Settings window.** "Settings…" in the tray menu now opens a small window instead of the settings file in Notepad: the shortcut, the folder (with a Choose… button), how long to keep, the clipboard text, the sound and the banner. Every change is saved as you make it; a changed shortcut works at once, no restart. The settings file is still there for people who like to edit it by hand.
+- **Windows: choose the sound.** Feed discovered (the new default), Menu command, Navigation start and Speech on, which ship with Windows, or the Tink from before, or Off. In Settings and in the tray menu under Sound; picking one plays it. A settings file that says `"sound": true` or `false` still works.
+- Windows: the tray menu starts with the shortcut to press, like the Mac's.
+
 ## 0.3.3 (2026-09-19)
 
 Paste it for me, and the visitor numbers on smugshot.io.
