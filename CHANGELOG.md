@@ -4,6 +4,7 @@ Newest first. Written for the person using the tool, not the person reading the 
 
 ## Unreleased
 
+- Each version is now also a release on the public repo, with the same Mac and Windows files as smugshot.io.
 
 ## 0.3.2 (2026-09-18)
 

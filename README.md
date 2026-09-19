@@ -125,6 +125,7 @@ Smugshot sees your whole screen, so you should not have to take anyone's word fo
 - **What it reads:** the screen (`Capturer.swift`), the control under your drag through the accessibility layer (`Accessibility.swift`), text from the close-up, recognised on your Mac (`TextReader.swift`), and in a browser the page element you dragged over (`Browser.swift`). Each can be switched off in Settings.
 - **Point your agent at it.** The code is small: about a dozen Swift files and half a dozen Go files, with no dependencies beyond what the system and the language ship with (`Package.swift`, `windows/go.mod`).
 - **Or build it yourself** instead of downloading: "Install from source" above, or `./scripts/build-windows.sh` for Windows (needs Go).
+- **The downloads are here too.** Each [release](https://github.com/pjalle/smugshot-app/releases) carries the same Mac and Windows files as smugshot.io, made from the tagged code.
 
 Readable source does not prove that a download was built from it. If that matters to you, build your own copy.
 
