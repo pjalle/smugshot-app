@@ -438,7 +438,7 @@ func finish() {
 		return
 	}
 	path := filepath.Join(dir, "shot.md")
-	os.WriteFile(path, []byte(shotText(dir, at, app, title, fullRegion, fullImg.Bounds().Size())), 0o600)
+	os.WriteFile(path, []byte(shotText(dir, at, app, title, fullRegion, fullImg.Bounds().Size(), "")), 0o600)
 	// The text in front matters less on Windows (paths start with a drive letter), but agents key on it.
 	cfg := loadSettings()
 	setClipboard(*cfg.Prefix + path)

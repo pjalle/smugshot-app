@@ -4,6 +4,12 @@ Newest first. Written for the person using the tool, not the person reading the 
 
 ## Unreleased
 
+## 0.4.1 (2026-09-20)
+
+Linux works on Wayland, not only X11.
+
+- **Linux on Wayland.** Smugshot now works on a Wayland desktop, not only on X11. Because Wayland lets no program hold a shortcut for the whole desktop, you bind `smugshot` to a key yourself in your desktop's keyboard settings; `smugshot --help` says how for GNOME, KDE, sway and Hyprland. The picture comes from the compositor itself on sway and Hyprland, and through the desktop's screenshot service on GNOME and KDE, which asks once and remembers. On Wayland shot.md has no app or window line, and says why: no program there may ask what is under the pointer. Tried in a headless sway session; GNOME and KDE are written to the standard and not yet tried.
+- Linux: the X11 version no longer fails with "Could not take the picture" on a Wayland session. It now knows which kind of session it is in and uses the right half.
 ## 0.4.0 (2026-09-20)
 
 A first Linux version.

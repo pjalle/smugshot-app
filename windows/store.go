@@ -99,7 +99,8 @@ func summary(dir string) string {
 	return line
 }
 
-func shotText(dir string, at time.Time, app, window string, region image.Rectangle, size image.Point) string {
+// note is an extra line for things the reader should know about this smugshot, or "" for none.
+func shotText(dir string, at time.Time, app, window string, region image.Rectangle, size image.Point, note string) string {
 	lines := []string{
 		"# Smugshot",
 		"The user pointed at part of their screen and pasted this path so you can see what they mean.",
@@ -117,5 +118,8 @@ func shotText(dir string, at time.Time, app, window string, region image.Rectang
 	}
 	lines = append(lines, fmt.Sprintf("- Region in full.png (pixels): x %d, y %d, w %d, h %d of %dx%d",
 		region.Min.X, region.Min.Y, region.Dx(), region.Dy(), size.X, size.Y))
+	if note != "" {
+		lines = append(lines, "", note)
+	}
 	return strings.Join(lines, "\r\n") + "\r\n"
 }

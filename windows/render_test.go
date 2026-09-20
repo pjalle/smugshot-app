@@ -58,10 +58,22 @@ func TestCropAtScreenEdgeDoesNotPanic(t *testing.T) {
 }
 
 func TestShotText(t *testing.T) {
-	text := shotText(`C:\Users\you\.smugshots\x`, time.Date(2026, 9, 17, 21, 0, 0, 0, time.UTC), "brave.exe", "Quill", image.Rect(1, 2, 11, 22), image.Pt(2000, 1250))
+	text := shotText(`C:\Users\you\.smugshots\x`, time.Date(2026, 9, 17, 21, 0, 0, 0, time.UTC), "brave.exe", "Quill", image.Rect(1, 2, 11, 22), image.Pt(2000, 1250), "")
 	for _, want := range []string{"# Smugshot", "- App: brave.exe", "- Window: Quill", "x 1, y 2, w 10, h 20 of 2000x1250", `crop.png`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q", want)
 		}
+	}
+}
+
+// On Wayland there is no app or window to name, and a note says why.
+func TestShotTextWithNoteAndNoApp(t *testing.T) {
+	text := shotText("/home/you/.smugshots/x", time.Date(2026, 9, 20, 21, 0, 0, 0, time.UTC), "", "",
+		image.Rect(1, 2, 11, 22), image.Pt(2000, 1250), "No app or window here.")
+	if strings.Contains(text, "- App:") || strings.Contains(text, "- Window:") {
+		t.Error("an empty app or window should leave the line out")
+	}
+	if !strings.Contains(text, "No app or window here.") {
+		t.Error("the note is missing")
 	}
 }
