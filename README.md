@@ -6,7 +6,7 @@ A pointing tool for working with AI agents. It's "screenshot" crossed with "mugs
 
 Press a hotkey, drag over part of your screen, paste a path into a chat with an agent that can read your disk. The agent gets the whole screen with your part outlined, a sharp close-up, and a small text file that says what it is looking at. There is no editor and no annotation step. The drag is the whole gesture.
 
-Mac (macOS 15 or later) is the full version. There is a first Windows version with the gesture only; see the end.
+Mac (macOS 15 or later) is the full version. There are first Windows and Linux versions with the gesture only; see the end.
 
 **Download:** https://smugshot.io, free. Or read the code here and build it yourself; see "Check it yourself" at the end.
 
@@ -108,6 +108,7 @@ defaults delete com.pjalle.smugshot folder                      # back to the de
 ## Working on it
 
 - `Sources/Smugshot/`: `HotKey` (system hotkey), `Capturer` (the picture), `Overlay` (the drag layer), `Renderer` (full.png and crop.png), `Accessibility` (what was there), `Paster` (paste it for me: bring an app forward and press ⌘V, and the list of known apps), `TextReader` (text from the close-up), `Browser` (the web element), `Store` (the folder, cleanup, shot.md), `Settings` (the settings, the retention presets, the shortcut and key names), `SettingsWindow`, `WhatsNewWindow` (the changelog in the app; `build.sh` puts it there, without the lines that are not about the app), `AppDelegate` (the gesture and the menu), `MenuBarIcon`.
+- `windows/` is also the Linux version: `main_linux.go` (the X11 side: the shortcut, the drag layer, the picture, the window under the drag, the clipboard) with `store.go`, `render.go`, `settings.go` and `sound.go` shared between the two. `./scripts/build-linux.sh` builds it.
 - `agents/claude-skill/`: the Claude Code skill. `design/chosen/`: the icon, drawn from geometry by `python3 scripts/draw-icon.py` (needs Pillow); `swift scripts/make-icon.swift` then rebuilds `Resources/AppIcon.icns`.
 - Testing without hands on the mouse: `defaults write com.pjalle.smugshot enableTestHook -bool true`, restart, and see the comment above `installTestHook` in `AppDelegate.swift`. `./scripts/build.sh` without `SMUGSHOT_VERSION` gives the app the newest version number in `CHANGELOG.md`.
 
@@ -119,6 +120,14 @@ defaults delete com.pjalle.smugshot folder                      # back to the de
 
 It has the gesture only: no "what was there", no text reading, no web element, no "paste into" yet. It was first run on a real Windows machine on 2026-09-18, and the gesture works. Since 2026-09-19 it also runs on a Windows laptop of ours, with 0.3.2, after Defender was told to allow it. When it starts, a banner at the bottom right says it is running and names the hotkey; starting it a second time only shows "already running".
 
+
+## Linux
+
+The Linux version is the same Go program as the Windows one, in `windows/main_linux.go`, built with `./scripts/build-linux.sh` into `build/smugshot-linux-amd64` and `build/smugshot-linux-arm64`: one plain file, no libraries to install. Start it (`./smugshot &`), and a notification says it is running. Press **Ctrl + Shift + 1**, drag, paste; it writes the same three files to `~/.smugshots/` and puts the path on the clipboard for as long as it runs. Esc, a right-click, a click without dragging, or the shortcut again cancels. A second copy says "already running" and stops.
+
+It talks to the X server directly, so it works on X11 desktops, and on a Wayland desktop only for the apps that run through XWayland; a native Wayland desktop hides other apps' windows from it and gives it no global shortcut. That is the next piece of work. Settings are the same file as on Windows, `~/.config/Smugshot/settings.json`, written on first start: the folder, `keepFor`, the clipboard text, the `hotkey` (`ctrl+shift+1`, `ctrl+alt+s`, `win+shift+f9`, where win is the Super key; needs a restart), `sound` (anything but `off` plays the tink) and `banner` (the notification after a smugshot). No tray icon, no Settings window and no "what was there" yet.
+
+It has been tried in a virtual X screen only (an Ubuntu VM with Xvfb and Openbox, 2026-09-20): the gesture, the files, the app and window name, the clipboard and every way to cancel work there. Nobody has run it on a real Linux desktop yet, and the page says so and asks for word back. The download is `smugshot.io/download/linux`, a tar.gz with both files, made by `./scripts/build-linux.sh <version>` and put on the page with each release like the Mac and Windows files.
 
 ## Check it yourself
 

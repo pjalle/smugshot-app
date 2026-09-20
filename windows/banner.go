@@ -13,9 +13,6 @@ import (
 // After a smugshot: a small dark banner at the bottom right, "Copied. Paste it into the chat.", which fades
 // out after a moment, and a short sound. Each can be switched off in Settings or the tray menu.
 
-//go:embed tink.wav
-var tinkWAV []byte
-
 var (
 	winmm                 = syscall.NewLazyDLL("winmm.dll")
 	pPlaySound            = winmm.NewProc("PlaySoundW")

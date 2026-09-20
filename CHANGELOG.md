@@ -4,6 +4,11 @@ Newest first. Written for the person using the tool, not the person reading the 
 
 ## Unreleased
 
+## 0.4.0 (2026-09-20)
+
+A first Linux version.
+
+- **A first Linux version**, the gesture only, like Windows: press Ctrl + Shift + 1, drag, paste the path. One plain file for X11 desktops (and XWayland apps on a Wayland desktop), built from the same Go code as the Windows version with `./scripts/build-linux.sh`. Tried in a virtual X screen only, not yet on a real Linux desktop: the page says so and asks for word back. Download: smugshot.io/download/linux, and on the page for Linux visitors.
 ## 0.3.4 (2026-09-20)
 
 Windows: a Settings window and a choice of sounds.
