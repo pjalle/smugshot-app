@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,6 +182,119 @@ func TestHotkeyLabel(t *testing.T) {
 	} {
 		if got := hotkeyLabel(in); got != want {
 			t.Errorf("hotkeyLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTextSection(t *testing.T) {
+	if got := textSection(nil); got != "" {
+		t.Errorf("no lines should give no section, got %q", got)
+	}
+	want := "## Text read from the close-up\r\nRecognised from the picture, so expect small mistakes.\r\n```\r\nSave\r\nCancel\r\n```"
+	if got := textSection([]string{"Save", "Cancel"}); got != want {
+		t.Errorf("textSection = %q, want %q", got, want)
+	}
+	text := shotText(`C:\x`, time.Date(2026, 9, 30, 9, 0, 0, 0, time.UTC), "Code.exe", "main.go", image.Rect(1, 2, 11, 22), image.Pt(2000, 1250), textSection([]string{"func main() {"}))
+	if !strings.Contains(text, "of 2000x1250\r\n\r\n## Text read from the close-up\r\n") || !strings.HasSuffix(text, "func main() {\r\n```\r\n") {
+		t.Errorf("the section should follow a blank line at the end of shot.md:\n%s", text)
+	}
+}
+
+func TestOCRLines(t *testing.T) {
+	got := ocrLines("\ufeffFile  Edit \r\n\r\n   \r\n  indented stays\r\nlast")
+	want := []string{"File  Edit", "  indented stays", "last"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("ocrLines = %q, want %q", got, want)
+	}
+	if got := ocrLines(""); len(got) != 0 {
+		t.Errorf("nothing printed should give no lines, got %q", got)
+	}
+}
+
+func TestReadTextAndPasteIntoSettings(t *testing.T) {
+	cases := []struct {
+		data      string
+		readText  bool
+		pasteOn   bool
+		pasteInto string
+	}{
+		{`{}`, true, false, ""},
+		{`{"readText": false}`, false, false, ""},
+		{`{"readText": true, "pasteInto": "off"}`, true, false, "off"},
+		{`{"pasteInto": " Off "}`, true, false, "off"},
+		{`{"pasteInto": "Previous"}`, true, true, "previous"},
+		{`{"pasteInto": "WindowsTerminal.exe"}`, true, true, "WindowsTerminal.exe"},
+		{`{"pasteInto": 3}`, true, false, ""}, // the file is treated as broken, so the defaults
+	}
+	for _, c := range cases {
+		s := parseSettings([]byte(c.data))
+		if s.readTextOn() != c.readText || s.pasteOn() != c.pasteOn || s.PasteInto != c.pasteInto {
+			t.Errorf("parseSettings(%s): readText %v, pasteOn %v, pasteInto %q; want %v, %v, %q",
+				c.data, s.readTextOn(), s.pasteOn(), s.PasteInto, c.readText, c.pasteOn, c.pasteInto)
+		}
+	}
+	s := parseSettings([]byte(settingsTemplate))
+	if !s.readTextOn() || s.pasteOn() {
+		t.Errorf("the template should read text and not paste, got %+v", s)
+	}
+}
+
+func TestPasteChoices(t *testing.T) {
+	for value, title := range map[string]string{
+		"":                    "Off",
+		"off":                 "Off",
+		"previous":            "The app I came from",
+		"WindowsTerminal.exe": "Windows Terminal (WindowsTerminal.exe)",
+		"code.exe":            "Visual Studio Code (Code.exe)",
+		"hx.exe":              "hx.exe",
+	} {
+		if got := pasteChoiceTitle(value); got != title {
+			t.Errorf("pasteChoiceTitle(%q) = %q, want %q", value, got, title)
+		}
+	}
+	for text, value := range map[string]string{
+		"":                                       "off",
+		"Off":                                    "off",
+		"The app I came from":                    "previous",
+		"previous":                               "previous",
+		"Windows Terminal (WindowsTerminal.exe)": "WindowsTerminal.exe",
+		"cursor":                                 "Cursor.exe",
+		" hx.exe ":                               "hx.exe",
+	} {
+		if got := pasteChoiceValue(text); got != value {
+			t.Errorf("pasteChoiceValue(%q) = %q, want %q", text, got, value)
+		}
+	}
+	for _, p := range knownPrograms { // every list entry comes back as the program it names
+		if got := pasteChoiceValue(pasteChoiceTitle(p.File)); got != p.File {
+			t.Errorf("%s: the round trip gave %q", p.File, got)
+		}
+	}
+	for file, title := range map[string]string{"code.exe": "Visual Studio Code", "hx.exe": "hx", "HX.EXE": "HX", "hx": "hx"} {
+		if got := programTitle(file); got != title {
+			t.Errorf("programTitle(%q) = %q, want %q", file, got, title)
+		}
+	}
+}
+
+func TestPasteHint(t *testing.T) {
+	cases := []struct {
+		thisShot, settingOn bool
+		destination, want   string
+	}{
+		{true, true, "Windows Terminal", "Pastes into Windows Terminal after the drag · 1 switches it off"},
+		{true, false, "", "No app to paste into · 1 switches pasting off"},
+		{false, true, "", "Not pasting this time · 1 switches it back on"},
+		{false, false, "", ""},
+	}
+	for _, c := range cases {
+		if got := pasteHint(c.thisShot, c.settingOn, c.destination, "1"); got != c.want {
+			t.Errorf("pasteHint(%v, %v, %q) = %q, want %q", c.thisShot, c.settingOn, c.destination, got, c.want)
+		}
+	}
+	for in, want := range map[string]string{"ctrl+shift+1": "1", "ctrl+alt+s": "S", "win+shift+f9": "F9"} {
+		if got := hotkeyKey(in); got != want {
+			t.Errorf("hotkeyKey(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

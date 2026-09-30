@@ -15,18 +15,22 @@ import (
 // restart is needed; the hotkey is registered again when the Settings window changes it.
 //
 // The same settings as on the Mac where they apply: where smugshots go, how long they are kept, the text
-// in front of the path, the hotkey, the sound and the banner.
+// in front of the path, the hotkey, the sound, the banner, where to paste and whether to read the text.
 type settings struct {
-	Folder  string       `json:"folder"`
-	KeepFor string       `json:"keepFor"`
-	Prefix  *string      `json:"prefix"` // a pointer, so an explicit "" means "nothing in front of the path"
-	Hotkey  string       `json:"hotkey"`
-	Sound   soundSetting `json:"sound"`  // the sound after a smugshot, by name, or "off"
-	Banner  *bool        `json:"banner"` // the small "Copied" banner after a smugshot; a pointer so that a missing key means on
+	Folder    string       `json:"folder"`
+	KeepFor   string       `json:"keepFor"`
+	Prefix    *string      `json:"prefix"` // a pointer, so an explicit "" means "nothing in front of the path"
+	Hotkey    string       `json:"hotkey"`
+	Sound     soundSetting `json:"sound"`     // the sound after a smugshot, by name, or "off"
+	Banner    *bool        `json:"banner"`    // the small "Copied" banner after a smugshot; a pointer so that a missing key means on
+	PasteInto string       `json:"pasteInto"` // "off", "previous" (the app you came from), or a program's file name
+	ReadText  *bool        `json:"readText"`  // the text in the close-up into shot.md; a pointer so that a missing key means on
 }
 
-func (s settings) soundOn() bool  { return s.Sound != soundOff }
-func (s settings) bannerOn() bool { return s.Banner == nil || *s.Banner }
+func (s settings) soundOn() bool    { return s.Sound != soundOff }
+func (s settings) bannerOn() bool   { return s.Banner == nil || *s.Banner }
+func (s settings) readTextOn() bool { return s.ReadText == nil || *s.ReadText }
+func (s settings) pasteOn() bool    { return s.PasteInto != "" && s.PasteInto != pasteOff }
 
 // soundName is the sound to play: the setting, or the default when the key is missing.
 func (s settings) soundName() string {
@@ -101,15 +105,99 @@ var keepForChoices = []struct{ Value, Title string }{
 	{"1h", "1 hour"}, {"1d", "1 day"}, {"1w", "1 week"}, {"forever", "Forever"},
 }
 
+// "Paste it for me": the pasteInto values that are not a program. Like the Mac's, where the rest is a bundle id.
+const (
+	pasteOff      = "off"
+	pastePrevious = "previous"
+)
+
+// The programs people talk to agents in, for the Paste into list in the Settings window, like the Mac's
+// KnownApp list. Windows has no cheap way to ask whether a program is installed, so all of them are listed.
+var knownPrograms = []struct{ Title, File string }{
+	{"Windows Terminal", "WindowsTerminal.exe"}, {"Visual Studio Code", "Code.exe"}, {"Cursor", "Cursor.exe"},
+	{"Windsurf", "Windsurf.exe"}, {"WezTerm", "wezterm-gui.exe"}, {"Alacritty", "alacritty.exe"},
+	{"Claude", "claude.exe"}, {"ChatGPT", "ChatGPT.exe"},
+}
+
+// The first two entries of the Paste into list; the known programs follow.
+const (
+	pasteOffTitle      = "Off"
+	pastePreviousTitle = "The app I came from"
+)
+
+// pasteChoiceTitle is what the Paste into box shows for a pasteInto value.
+func pasteChoiceTitle(value string) string {
+	switch value {
+	case "", pasteOff:
+		return pasteOffTitle
+	case pastePrevious:
+		return pastePreviousTitle
+	}
+	for _, p := range knownPrograms {
+		if strings.EqualFold(p.File, value) {
+			return p.Title + " (" + p.File + ")"
+		}
+	}
+	return value
+}
+
+// pasteChoiceValue turns what is in the Paste into box back into a pasteInto value: a title from the list, or
+// a program's file name typed by hand.
+func pasteChoiceValue(text string) string {
+	text = strings.TrimSpace(text)
+	switch {
+	case text == "" || strings.EqualFold(text, pasteOffTitle) || strings.EqualFold(text, pasteOff):
+		return pasteOff
+	case strings.EqualFold(text, pastePreviousTitle) || strings.EqualFold(text, pastePrevious):
+		return pastePrevious
+	}
+	for _, p := range knownPrograms {
+		if strings.EqualFold(text, p.Title+" ("+p.File+")") || strings.EqualFold(text, p.Title) {
+			return p.File
+		}
+	}
+	return text
+}
+
+// programTitle is the name a person knows a program by: the known title, or the file name without .exe.
+func programTitle(file string) string {
+	for _, p := range knownPrograms {
+		if strings.EqualFold(p.File, file) {
+			return p.Title
+		}
+	}
+	if strings.HasSuffix(strings.ToLower(file), ".exe") {
+		return file[:len(file)-4]
+	}
+	return file
+}
+
+// pasteHint is the line at the top of the drag layer, like the Mac's: where this smugshot will be pasted, and
+// that the shortcut's key switches it. Nothing when pasting is off and was not switched on. destination is ""
+// when there is nowhere to paste.
+func pasteHint(thisShot, settingOn bool, destination, key string) string {
+	switch {
+	case thisShot && destination == "":
+		return "No app to paste into · " + key + " switches pasting off"
+	case thisShot:
+		return "Pastes into " + destination + " after the drag · " + key + " switches it off"
+	case settingOn:
+		return "Not pasting this time · " + key + " switches it back on"
+	}
+	return ""
+}
+
 // The file written the first time Settings… is opened, so the user sees what can be set.
 const settingsTemplate = `{
-  "_help": "Smugshot settings; the Settings window in the tray menu edits this file. folder: where smugshots go (empty = ~\\.smugshots). keepFor: 1m, 2m, 5m, 10m, 30m, 1h, 1d, 1w or forever. prefix: the text in front of the path on the clipboard, spaces included. hotkey: modifiers plus one key, like ctrl+shift+1, ctrl+alt+s, win+shift+f9; edited by hand it needs a restart. sound: the sound after a smugshot: feed, menu, navigation, speech, tink or off. banner: the small Copied banner after a smugshot, true or false. Changes apply to the next smugshot.",
+  "_help": "Smugshot settings; the Settings window in the tray menu edits this file. folder: where smugshots go (empty = ~\\.smugshots). keepFor: 1m, 2m, 5m, 10m, 30m, 1h, 1d, 1w or forever. prefix: the text in front of the path on the clipboard, spaces included. hotkey: modifiers plus one key, like ctrl+shift+1, ctrl+alt+s, win+shift+f9; edited by hand it needs a restart. sound: the sound after a smugshot: feed, menu, navigation, speech, tink or off. banner: the small Copied banner after a smugshot, true or false. pasteInto: off, previous (the app you came from) or a program's file name like WindowsTerminal.exe or Code.exe. readText: read the text in the close-up into shot.md with Windows' own OCR, true or false. Changes apply to the next smugshot.",
   "folder": "",
   "keepFor": "1d",
   "prefix": "smugshot: ",
   "hotkey": "ctrl+shift+1",
   "sound": "feed",
-  "banner": true
+  "banner": true,
+  "pasteInto": "off",
+  "readText": true
 }
 `
 
@@ -167,6 +255,11 @@ func parseSettings(data []byte) settings {
 	}
 	if _, known := soundByName(string(s.Sound)); s.Sound != "" && s.Sound != soundOff && !known {
 		s.Sound = ""
+	}
+	// "off" and "previous" in any case; a program's file name keeps its case and is matched without it.
+	s.PasteInto = strings.TrimSpace(s.PasteInto)
+	if v := strings.ToLower(s.PasteInto); v == "" || v == pasteOff || v == pastePrevious {
+		s.PasteInto = v
 	}
 	return s
 }
@@ -266,4 +359,10 @@ func hotkeyLabel(value string) string {
 		parts[i] = part
 	}
 	return strings.Join(parts, " + ")
+}
+
+// hotkeyKey is the key of a hotkey without its modifiers, the way a person reads it: "1" for ctrl+shift+1.
+func hotkeyKey(value string) string {
+	parts := strings.Split(hotkeyLabel(value), " + ")
+	return parts[len(parts)-1]
 }

@@ -123,3 +123,27 @@ func shotText(dir string, at time.Time, app, window string, region image.Rectang
 	}
 	return strings.Join(lines, "\r\n") + "\r\n"
 }
+
+// textSection is the part of shot.md with the text read from the close-up, worded as on the Mac, or "" when
+// nothing was read. It goes in as shotText's note.
+func textSection(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	section := []string{"## Text read from the close-up", "Recognised from the picture, so expect small mistakes.", "```"}
+	section = append(section, lines...)
+	section = append(section, "```")
+	return strings.Join(section, "\r\n")
+}
+
+// ocrLines turns what the text reader printed into lines: in reading order as they came, without trailing
+// spaces or empty lines. A byte-order mark in front is dropped; Windows PowerShell can write one.
+func ocrLines(out string) []string {
+	var lines []string
+	for _, l := range strings.Split(strings.TrimPrefix(out, "\ufeff"), "\n") {
+		if l = strings.TrimRight(l, " \t\r"); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}

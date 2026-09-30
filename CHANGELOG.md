@@ -4,6 +4,9 @@ Newest first. Written for the person using the tool, not the person reading the 
 
 ## Unreleased
 
+- **Windows: text read from the close-up.** shot.md now has the text in the dragged part, as on the Mac, read by the OCR that ships with Windows 10 and 11. Nothing leaves the machine. On by default; Read text in Settings switches it off.
+- **Windows: paste it for me.** The Paste into setting, as on the Mac: after the drag, Smugshot brings the app you came from, or a program you pick (Windows Terminal, VS Code, Cursor and others, or any program by its file name), to the front and presses Ctrl + V there. It never presses Enter. Off by default. While the screen is dimmed, press the shortcut's key on its own (1) to switch it for that one smugshot; a line at the top says where it will paste.
+
 ## 0.4.1 (2026-09-20)
 
 Linux works on Wayland, not only X11.
