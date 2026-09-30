@@ -159,21 +159,24 @@ func pasteInto(hwnd uintptr) bool {
 }
 
 // The per-shot switch: while the drag layer is up, the shortcut's key on its own switches pasting for this
-// smugshot, and a line at the top of the screen says what will happen, as on the Mac.
+// smugshot, and a line at the top of the screen says what will happen, as on the Mac. The line is its own
+// small window, opaque, above the drag layer: drawn on the layer itself it would take the layer's dimness
+// and be hard to read. Mouse events pass through it to the layer, so a drag can start anywhere.
 
 var (
-	hintArea rect // the top of the screen the pointer is on, in the drag layer's own coordinates
-	hintFont uintptr
+	hint      uintptr // the window with the line, made once, shown while the drag layer is up
+	hintFont  uintptr
+	hintBrush uintptr
 )
 
 func togglePaste() {
 	pasteThisShot = !pasteThisShot
 	updatePasteHint(loadSettings())
-	pInvalidateRect.Call(overlay, 0, 1)
 }
 
-// updatePasteHint works out the line for the current state. Called when the drag layer goes up and when the
-// key switches it.
+// updatePasteHint works out the line for the current state and shows it at the top of the screen the pointer
+// is on, or hides it when there is nothing to say. Called when the drag layer goes up and when the key
+// switches pasting.
 func updatePasteHint(cfg settings) {
 	destination := ""
 	if pasteThisShot {
@@ -182,29 +185,74 @@ func updatePasteHint(cfg settings) {
 		}
 	}
 	pasteHintText = pasteHint(pasteThisShot, cfg.pasteOn(), destination, hotkeyKey(cfg.Hotkey))
-	var p point
-	pGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
-	mon := monitorRect(p)
-	hintArea = rect{mon.Left - origin.X, mon.Top - origin.Y, mon.Right - origin.X, mon.Bottom - origin.Y}
-}
-
-// drawHint writes the line at the top middle of the screen the pointer is on, in the banner's font.
-func drawHint(hdc uintptr) {
-	dpi, _, _ := pGetDpiForWindow.Call(overlay)
+	if pasteHintText == "" {
+		hidePasteHint()
+		return
+	}
+	if hint == 0 {
+		makeHint()
+	}
+	dpi, _, _ := pGetDpiForWindow.Call(hint)
 	if dpi == 0 {
 		dpi = 96
 	}
 	scale := func(v int) int { return v * int(dpi) / 96 }
-	if hintFont == 0 {
-		face, _ := syscall.UTF16PtrFromString("Segoe UI")
-		hintFont, _, _ = pCreateFont.Call(uintptr(-scale(15)&0xFFFFFFFF), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(face)))
+	var p point
+	pGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
+	mon := monitorRect(p)
+	w, h := scale(560), scale(36)
+	x, y := int(mon.Left)+(int(mon.Right-mon.Left)-w)/2, int(mon.Top)+scale(12)
+	pSetWindowPos.Call(hint, ^uintptr(0), uintptr(x), uintptr(y), uintptr(w), uintptr(h), 0x0010|0x0040) // HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW
+	pInvalidateRect.Call(hint, 0, 1)
+}
+
+func hidePasteHint() {
+	if hint != 0 {
+		pShowWindow.Call(hint, 0)
 	}
-	pSetBkMode.Call(hdc, 1) // TRANSPARENT
-	pSetTextColor.Call(hdc, 0xFFFFFF)
-	old, _, _ := pSelectObject.Call(hdc, hintFont)
-	text, _ := syscall.UTF16FromString(pasteHintText)
-	area := hintArea
-	area.Top += int32(scale(16))
-	pDrawText.Call(hdc, uintptr(unsafe.Pointer(&text[0])), ^uintptr(0), uintptr(unsafe.Pointer(&area)), 0x1|0x20) // DT_CENTER, DT_SINGLELINE
-	pSelectObject.Call(hdc, old)
+}
+
+func makeHint() {
+	instance, _, _ := pGetModuleHandle.Call(0)
+	className, _ := syscall.UTF16PtrFromString("SmugshotHint")
+	arrow, _, _ := pLoadCursor.Call(0, 32512) // IDC_ARROW
+	class := wndClassEx{WndProc: syscall.NewCallback(hintProc), Instance: instance, Cursor: arrow, ClassName: className}
+	class.Size = uint32(unsafe.Sizeof(class))
+	pRegisterClassEx.Call(uintptr(unsafe.Pointer(&class)))
+	const wsExNoActivate, wsExTransparent = 0x08000000, 0x20 // never takes the keyboard from the drag layer; clicks fall through
+	hint, _, _ = pCreateWindowEx.Call(wsExTopmost|wsExToolWindow|wsExNoActivate|wsExTransparent,
+		uintptr(unsafe.Pointer(className)), 0, wsPopup, 0, 0, 0, 0, 0, 0, instance, 0)
+	hintBrush, _, _ = pCreateSolidBrush.Call(0x1E1E1E)
+}
+
+func hintProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
+	if message == wmPaint {
+		var ps paintStruct
+		hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+		dpi, _, _ := pGetDpiForWindow.Call(hwnd)
+		if dpi == 0 {
+			dpi = 96
+		}
+		scale := func(v int) int { return v * int(dpi) / 96 }
+		if hintFont == 0 {
+			face, _ := syscall.UTF16PtrFromString("Segoe UI")
+			hintFont, _, _ = pCreateFont.Call(uintptr(-scale(15)&0xFFFFFFFF), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(face)))
+		}
+		var client rect
+		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
+		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&client)), hintBrush)
+		accent := rect{0, 0, int32(scale(4)), client.Bottom}
+		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&accent)), redBrush)
+		pSetBkMode.Call(hdc, 1) // TRANSPARENT
+		pSetTextColor.Call(hdc, 0xFFFFFF)
+		old, _, _ := pSelectObject.Call(hdc, hintFont)
+		text, _ := syscall.UTF16FromString(pasteHintText)
+		area := rect{int32(scale(12)), 0, client.Right - int32(scale(12)), client.Bottom}
+		pDrawText.Call(hdc, uintptr(unsafe.Pointer(&text[0])), ^uintptr(0), uintptr(unsafe.Pointer(&area)), 0x1|0x20|0x4|0x8000) // DT_CENTER, DT_SINGLELINE, DT_VCENTER, DT_END_ELLIPSIS
+		pSelectObject.Call(hdc, old)
+		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+		return 0
+	}
+	r, _, _ := pDefWindowProc.Call(hwnd, uintptr(message), wParam, lParam)
+	return r
 }

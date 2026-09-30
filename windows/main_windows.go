@@ -317,9 +317,6 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 				pFrameRect.Call(hdc, uintptr(unsafe.Pointer(&f)), redBrush)
 			}
 		}
-		if pasteHintText != "" {
-			drawHint(hdc)
-		}
 		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
 	case wmAlreadyRunning:
@@ -400,9 +397,9 @@ func begin() {
 	cfg := loadSettings()
 	_, pasteKey, _ = parseHotkey(cfg.Hotkey)
 	pasteThisShot = cfg.pasteOn()
-	updatePasteHint(cfg)
 	pSetWindowPos.Call(overlay, ^uintptr(0), uintptr(int32(x)), uintptr(int32(y)), w, h, 0x0040) // HWND_TOPMOST, SWP_SHOWWINDOW
 	pSetForegroundWindow.Call(overlay)                                                           // so Esc reaches us
+	updatePasteHint(cfg)                                                                         // after the layer, so the line sits above it
 }
 
 func cancel() {
@@ -411,6 +408,7 @@ func cancel() {
 	}
 	active, dragging, shot = false, false, nil
 	pShowWindow.Call(overlay, 0)
+	hidePasteHint()
 }
 
 func finish() {
