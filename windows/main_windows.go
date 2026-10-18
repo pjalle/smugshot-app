@@ -1,8 +1,8 @@
 //go:build windows
 
 // Smugshot for Windows: press Ctrl+Shift+1, drag, paste the path.
-// Same gesture and the same files as the Mac version. Not yet on Windows: naming the
-// control under the drag, reading its text, and the browser element.
+// Same gesture and the same files as the Mac version, with the text read from the close-up and
+// "paste it for me". Not yet on Windows: naming the control under the drag, and the browser element.
 package main
 
 import (
@@ -279,6 +279,8 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	case wmKeyDown:
 		if wParam == vkEscape {
 			cancel()
+		} else if active && pasteKey != 0 && uint32(wParam) == pasteKey && lParam&(1<<30) == 0 { // not the key repeating
+			togglePaste()
 		}
 		return 0
 	case wmRButtonDown:
@@ -380,6 +382,7 @@ func selection() rect {
 
 // begin pictures the whole desktop first, then puts up the drag layer, so the layer is never in the picture.
 func begin() {
+	rememberCameFrom() // before the drag layer takes the front
 	x, _, _ := pGetSystemMetrics.Call(smXVirtual)
 	y, _, _ := pGetSystemMetrics.Call(smYVirtual)
 	w, _, _ := pGetSystemMetrics.Call(smCXVirtual)
@@ -391,8 +394,12 @@ func begin() {
 		return
 	}
 	active, dragging, startedAt = true, false, time.Now()
+	cfg := loadSettings()
+	_, pasteKey, _ = parseHotkey(cfg.Hotkey)
+	pasteThisShot = cfg.pasteOn()
 	pSetWindowPos.Call(overlay, ^uintptr(0), uintptr(int32(x)), uintptr(int32(y)), w, h, 0x0040) // HWND_TOPMOST, SWP_SHOWWINDOW
 	pSetForegroundWindow.Call(overlay)                                                           // so Esc reaches us
+	updatePasteHint(cfg)                                                                         // after the layer, so the line sits above it
 }
 
 func cancel() {
@@ -401,6 +408,7 @@ func cancel() {
 	}
 	active, dragging, shot = false, false, nil
 	pShowWindow.Call(overlay, 0)
+	hidePasteHint()
 }
 
 func finish() {
@@ -437,12 +445,21 @@ func finish() {
 		pMessageBeep.Call(0x10)
 		return
 	}
-	path := filepath.Join(dir, "shot.md")
-	os.WriteFile(path, []byte(shotText(dir, at, app, title, fullRegion, fullImg.Bounds().Size(), "")), 0o600)
-	// The text in front matters less on Windows (paths start with a drive letter), but agents key on it.
 	cfg := loadSettings()
+	note := ""
+	if cfg.readTextOn() {
+		note = textSection(readText(filepath.Join(dir, "crop.png")))
+	}
+	path := filepath.Join(dir, "shot.md")
+	os.WriteFile(path, []byte(shotText(dir, at, app, title, fullRegion, fullImg.Bounds().Size(), note)), 0o600)
+	// The text in front matters less on Windows (paths start with a drive letter), but agents key on it.
 	setClipboard(*cfg.Prefix + path)
 	lastPath = path
+	if pasteThisShot {
+		if hwnd, _ := pasteDestination(cfg); hwnd != 0 {
+			pasteInto(hwnd) // when it cannot, the path is on the clipboard all the same
+		}
+	}
 	if cfg.soundOn() {
 		playSound(cfg.soundName())
 	}
@@ -503,18 +520,7 @@ func windowAt(p point) (app, title string) {
 	}
 	buf := make([]uint16, 512)
 	pGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-	title = syscall.UTF16ToString(buf)
-
-	var pid uint32
-	pGetWindowThreadPID.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
-	if h, _, _ := pOpenProcess.Call(0x1000, 0, uintptr(pid)); h != 0 { // PROCESS_QUERY_LIMITED_INFORMATION
-		defer pCloseHandle.Call(h)
-		size := uint32(len(buf))
-		if ok, _, _ := pQueryFullImageName.Call(h, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size))); ok != 0 {
-			app = filepath.Base(syscall.UTF16ToString(buf[:size]))
-		}
-	}
-	return app, title
+	return processName(hwnd), syscall.UTF16ToString(buf)
 }
 
 func setClipboard(text string) {

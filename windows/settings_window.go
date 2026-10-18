@@ -37,16 +37,19 @@ const (
 	wsBorder, wsVScroll                   = 0x800000, 0x200000
 	wsCaption, wsSysMenu                  = 0xC00000, 0x80000
 	esAutoHScroll                         = 0x80
-	cbsDropDownList                       = 0x3
+	cbsDropDown, cbsDropDownList          = 0x2, 0x3
+	cbsAutoHScroll                        = 0x40
 	bsAutoCheckBox                        = 0x3
 	cbAddString, cbGetCurSel, cbSetCurSel = 0x143, 0x147, 0x14E
 	bmGetCheck, bmSetCheck                = 0xF0, 0xF1
 	cbnSelChange, enChange, enKillFocus   = 1, 0x300, 0x200
+	cbnKillFocus, cbnEditChange           = 4, 5
 	idCancel                              = 2 // what IsDialogMessage sends for Esc
 
 	// Control ids. Not 1 or 2: IsDialogMessage uses those for Enter and Esc.
 	idShortcut, idShortcutDefault, idFolder, idFolderChoose, idFolderDefault = 100, 101, 102, 103, 104
 	idKeepFor, idPrefix, idSound, idBanner, idHint                           = 105, 106, 107, 108, 109
+	idPasteInto, idReadText                                                  = 110, 111
 )
 
 var (
@@ -91,7 +94,7 @@ func openSettingsWindow() {
 		dpi = 96
 	}
 	scale := func(v int) int { return v * int(dpi) / 96 }
-	const clientW, clientH = 500, 250
+	const clientW, clientH = 500, 314
 	frame := rect{0, 0, int32(scale(clientW)), int32(scale(clientH))}
 	pAdjustWindowRect.Call(uintptr(unsafe.Pointer(&frame)), wsCaption|wsSysMenu, 0, 0, dpi)
 	w, h := int(frame.Right-frame.Left), int(frame.Bottom-frame.Top)
@@ -130,7 +133,11 @@ func openSettingsWindow() {
 		return control("BUTTON", text, wsTabStop, id, x, y, w, 23)
 	}
 	combo := func(id, x, y, w int, titles []string) uintptr {
-		hwnd := control("COMBOBOX", "", wsTabStop|wsVScroll|cbsDropDownList, id, x, y, w, 300)
+		style := uintptr(cbsDropDownList)
+		if id == idPasteInto { // a program not in the list can be typed in
+			style = cbsDropDown | cbsAutoHScroll
+		}
+		hwnd := control("COMBOBOX", "", wsTabStop|wsVScroll|style, id, x, y, w, 300)
 		for _, title := range titles {
 			t, _ := syscall.UTF16PtrFromString(title)
 			pSendMessage.Call(hwnd, cbAddString, 0, uintptr(unsafe.Pointer(t)))
@@ -168,7 +175,17 @@ func openSettingsWindow() {
 	label("Banner:", 176)
 	control("BUTTON", "Show a small \"Copied\" banner after a smugshot", wsTabStop|bsAutoCheckBox, idBanner, 120, 176, 364, 23)
 
-	settingsHint = control("STATIC", hintDefault, 0, idHint, 16, 216, 468, 20)
+	label("Paste into:", 208)
+	pasteTitles := []string{pasteOffTitle, pastePreviousTitle}
+	for _, p := range knownPrograms {
+		pasteTitles = append(pasteTitles, pasteChoiceTitle(p.File))
+	}
+	combo(idPasteInto, 120, 208, 364, pasteTitles)
+
+	label("Read text:", 240)
+	control("BUTTON", "Read the text in the close-up into shot.md (Windows OCR)", wsTabStop|bsAutoCheckBox, idReadText, 120, 240, 364, 23)
+
+	settingsHint = control("STATIC", hintDefault, 0, idHint, 16, 280, 468, 20)
 
 	refreshSettingsWindow()
 	pShowWindow.Call(settingsWindow, 5) // SW_SHOW
@@ -208,6 +225,12 @@ func refreshSettingsWindow() {
 		check = 1
 	}
 	pSendMessage.Call(settingsFields[idBanner], bmSetCheck, check, 0)
+	check = 0
+	if cfg.readTextOn() {
+		check = 1
+	}
+	pSendMessage.Call(settingsFields[idReadText], bmSetCheck, check, 0)
+	setText(settingsFields[idPasteInto], pasteChoiceTitle(cfg.PasteInto)) // the box's edit part: a list entry or a typed name
 }
 
 func settingsProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
@@ -253,6 +276,22 @@ func settingsProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr 
 		case id == idBanner:
 			on, _, _ := pSendMessage.Call(settingsFields[idBanner], bmGetCheck, 0, 0)
 			setSetting("banner", on == 1)
+		case id == idPasteInto && code == cbnSelChange:
+			// The box's text is still the old one while the choice changes, so the choice is read by its place.
+			i, _, _ := pSendMessage.Call(settingsFields[idPasteInto], cbGetCurSel, 0, 0)
+			switch n := int(i); {
+			case n == 0:
+				setSetting("pasteInto", pasteOff)
+			case n == 1:
+				setSetting("pasteInto", pastePrevious)
+			case n >= 2 && n-2 < len(knownPrograms):
+				setSetting("pasteInto", knownPrograms[n-2].File)
+			}
+		case id == idPasteInto && (code == cbnEditChange || code == cbnKillFocus):
+			setSetting("pasteInto", pasteChoiceValue(getText(settingsFields[idPasteInto])))
+		case id == idReadText:
+			on, _, _ := pSendMessage.Call(settingsFields[idReadText], bmGetCheck, 0, 0)
+			setSetting("readText", on == 1)
 		}
 		return 0
 	case wmCtlColorStatic: // labels on the window's own background, not the grey of a dialog
