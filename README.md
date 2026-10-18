@@ -6,7 +6,7 @@ A pointing tool for working with AI agents. It's "screenshot" crossed with "mugs
 
 Press a hotkey, drag over part of your screen, paste a path into a chat with an agent that can read your disk. The agent gets the whole screen with your part outlined, a sharp close-up, and a small text file that says what it is looking at. There is no editor and no annotation step. The drag is the whole gesture.
 
-Mac (macOS 15 or later) is the full version. There are first Windows and Linux versions with the gesture only; see the end.
+Mac (macOS 15 or later) is the full version. Windows has the gesture, the text read from the close-up and "paste it for me"; Linux has the gesture only; see the end.
 
 **Download:** https://smugshot.io, free. Or read the code here and build it yourself; see "Check it yourself" at the end.
 
