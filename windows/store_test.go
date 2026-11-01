@@ -324,7 +324,7 @@ func TestMarkupText(t *testing.T) {
 	if strings.Contains(text, "## Spot 2\r\nNo note, only the spot.\r\n\r\n- Close-up: "+filepath.Join(`C:\x`, "crop-02.png")+"\r\n- Whole screen: "+filepath.Join(`C:\x`, "full-02.png")+"\r\n- App:") {
 		t.Errorf("a spot with no app should have no App line:\n%s", text)
 	}
-	if one := markupText(`C:\x`, at, []spot{{Crop: c1, Full: f1}}); !strings.Contains(one, "marked 1 spot on") {
+	if one := markupText(`C:\x`, at, []spot{{Crop: c1, Full: f1}}); !strings.Contains(one, "marked 1 spot on their screen, typed a note for it,") {
 		t.Errorf("one spot should be singular:\n%s", one)
 	}
 }

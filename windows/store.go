@@ -173,13 +173,13 @@ func spotFiles(n int) (crop, full string) {
 // note, its two pictures and the text read from its close-up.
 func markupText(dir string, at time.Time, spots []spot) string {
 	n := len(spots)
-	word := "spots"
+	word, each := "spots", "each"
 	if n == 1 {
-		word = "spot"
+		word, each = "spot", "it"
 	}
 	lines := []string{
 		"# Smugshot",
-		fmt.Sprintf("The user marked %d %s on their screen, typed a note for each, and pasted this path so you can see what they mean.", n, word),
+		fmt.Sprintf("The user marked %d %s on their screen, typed a note for %s, and pasted this path so you can see what they mean.", n, word, each),
 		"Take the spots in order. For each, read the note, open its close-up (sharp, the spot is outlined), then its whole screen (the spot outlined, the rest dimmed) when you need the surroundings.",
 		"",
 		"- When: " + at.Format("2006-01-02 15:04:05"),
