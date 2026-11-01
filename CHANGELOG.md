@@ -4,6 +4,8 @@ Newest first. Written for the person using the tool, not the person reading the 
 
 ## Unreleased
 
+- **Windows: mark up several spots, a note on each.** A second shortcut, Ctrl + Shift + 2, for when one drag is not enough: drag a spot, type what you mean in the small box that opens beside it, press Enter and drag the next one. Ctrl + Enter, or Esc on the dimmed screen, ends it. Shift + Enter is a new line in a note, and Esc in the box drops that spot. One folder holds a close-up and a whole screen for every spot, and one shot.md lists the spots in order with your notes, so one paste gives the agent all of it. The plain gesture is unchanged. The shortcut is in Settings next to the other one.
+
 ## 0.4.2 (2026-10-21)
 
 Windows reads the text in the close-up and can paste it for you: the first outside contribution.

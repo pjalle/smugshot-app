@@ -6,7 +6,7 @@ A pointing tool for working with AI agents. It's "screenshot" crossed with "mugs
 
 Press a hotkey, drag over part of your screen, paste a path into a chat with an agent that can read your disk. The agent gets the whole screen with your part outlined, a sharp close-up, and a small text file that says what it is looking at. There is no editor and no annotation step. The drag is the whole gesture.
 
-Mac (macOS 15 or later) is the full version. Windows has the gesture, the text read from the close-up and "paste it for me"; Linux has the gesture only; see the end.
+Mac (macOS 15 or later) is the full version. Windows has the gesture, the text read from the close-up, "paste it for me" and mark-up (several spots, a note on each); Linux has the gesture only; see the end.
 
 **Download:** https://smugshot.io, free. Or read the code here and build it yourself; see "Check it yourself" at the end.
 
@@ -117,6 +117,8 @@ defaults delete com.pjalle.smugshot folder                      # back to the de
 `windows/` holds a first Windows version written in Go, built from any machine with `./scripts/build-windows.sh`. Press **Ctrl + Shift + 1**, drag, paste; it writes the same three files to `%USERPROFILE%\.smugshots\` and sits in the system tray.
 
 **Settings…** in the tray menu opens a small window (`windows/settings_window.go`): the shortcut (`ctrl+shift+1`, `ctrl+alt+s`, `win+shift+f9`: modifiers plus one key, typed as text), the folder with a Choose… button, how long to keep (the same choices as on the Mac), the clipboard text, the sound (Feed discovered, Menu command, Navigation start and Speech on, which ship with Windows, or Tink, or Off), the "Copied" banner, Paste into (Off, The app I came from, one of Windows Terminal, Visual Studio Code, Cursor, Windsurf, WezTerm, Alacritty, Claude and ChatGPT, or the file name of another program, typed in) and Read text. Every change is saved as it is made, and a new shortcut works at once. Behind the window is a small file, `%APPDATA%\Smugshot\settings.json`, which can also be edited by hand (`folder`, `keepFor`, `prefix`, `hotkey`, `sound` by name or `off`, `banner`, `pasteInto` as `off`, `previous` or a program's file name like `WindowsTerminal.exe`, `readText`); a hotkey changed by hand needs a restart. The tray menu starts with the shortcut to press and also has "Copy last smugshot again", the last five smugshots, the Sound choices and the Banner switch, and "Check for updates…", which opens smugshot.io in your browser.
+
+**Mark-up** is a second shortcut (**Ctrl + Shift + 2**, `markupHotkey` in the settings file, Mark-up in the Settings window) for the times one drag is not enough: drag a spot, type a note in the box that opens beside it, Enter for the next spot, Ctrl + Enter (or Esc on the dimmed screen, or either shortcut) when done. Shift + Enter is a new line in a note; Esc in the box drops that spot. The folder holds `crop-01.png` and `full-01.png` onwards, one pair per spot, each whole screen taken when its spot was dragged, and shot.md lists the spots in order with their notes, their app and window and the text read from each close-up (`windows/markup_windows.go`). The note box is hidden before the next picture, so it is never in one. The plain gesture is not changed by any of this.
 
 It reads the text in the close-up into shot.md with the OCR that ships with Windows 10 and 11, on the machine itself, through Windows PowerShell. With no OCR language installed for your languages the section is left out. Switching it off makes a smugshot land faster.
 
