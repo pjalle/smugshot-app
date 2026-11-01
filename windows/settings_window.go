@@ -49,7 +49,7 @@ const (
 	// Control ids. Not 1 or 2: IsDialogMessage uses those for Enter and Esc.
 	idShortcut, idShortcutDefault, idFolder, idFolderChoose, idFolderDefault = 100, 101, 102, 103, 104
 	idKeepFor, idPrefix, idSound, idBanner, idHint                           = 105, 106, 107, 108, 109
-	idPasteInto, idReadText                                                  = 110, 111
+	idPasteInto, idReadText, idMarkup, idMarkupDefault                       = 110, 111, 112, 113
 )
 
 var (
@@ -94,7 +94,7 @@ func openSettingsWindow() {
 		dpi = 96
 	}
 	scale := func(v int) int { return v * int(dpi) / 96 }
-	const clientW, clientH = 500, 314
+	const clientW, clientH = 500, 346
 	frame := rect{0, 0, int32(scale(clientW)), int32(scale(clientH))}
 	pAdjustWindowRect.Call(uintptr(unsafe.Pointer(&frame)), wsCaption|wsSysMenu, 0, 0, dpi)
 	w, h := int(frame.Right-frame.Left), int(frame.Bottom-frame.Top)
@@ -149,43 +149,47 @@ func openSettingsWindow() {
 	edit(idShortcut, 120, 16, 180)
 	button("Use Default", idShortcutDefault, 396, 16, 88)
 
-	label("Save to:", 48)
-	edit(idFolder, 120, 48, 180)
-	button("Choose…", idFolderChoose, 308, 48, 80)
-	button("Use Default", idFolderDefault, 396, 48, 88)
+	label("Mark-up:", 48)
+	edit(idMarkup, 120, 48, 180)
+	button("Use Default", idMarkupDefault, 396, 48, 88)
 
-	label("Keep for:", 80)
+	label("Save to:", 80)
+	edit(idFolder, 120, 80, 180)
+	button("Choose…", idFolderChoose, 308, 80, 80)
+	button("Use Default", idFolderDefault, 396, 80, 88)
+
+	label("Keep for:", 112)
 	keepTitles := make([]string, len(keepForChoices))
 	for i, c := range keepForChoices {
 		keepTitles[i] = c.Title
 	}
-	combo(idKeepFor, 120, 80, 140, keepTitles)
+	combo(idKeepFor, 120, 112, 140, keepTitles)
 
-	label("Clipboard text:", 112)
-	edit(idPrefix, 120, 112, 364)
+	label("Clipboard text:", 144)
+	edit(idPrefix, 120, 144, 364)
 
-	label("Sound:", 144)
+	label("Sound:", 176)
 	soundTitles := make([]string, 0, len(sounds)+1)
 	for _, snd := range sounds {
 		soundTitles = append(soundTitles, snd.Title)
 	}
 	soundTitles = append(soundTitles, "Off")
-	combo(idSound, 120, 144, 140, soundTitles)
+	combo(idSound, 120, 176, 140, soundTitles)
 
-	label("Banner:", 176)
-	control("BUTTON", "Show a small \"Copied\" banner after a smugshot", wsTabStop|bsAutoCheckBox, idBanner, 120, 176, 364, 23)
+	label("Banner:", 208)
+	control("BUTTON", "Show a small \"Copied\" banner after a smugshot", wsTabStop|bsAutoCheckBox, idBanner, 120, 208, 364, 23)
 
-	label("Paste into:", 208)
+	label("Paste into:", 240)
 	pasteTitles := []string{pasteOffTitle, pastePreviousTitle}
 	for _, p := range knownPrograms {
 		pasteTitles = append(pasteTitles, pasteChoiceTitle(p.File))
 	}
-	combo(idPasteInto, 120, 208, 364, pasteTitles)
+	combo(idPasteInto, 120, 240, 364, pasteTitles)
 
-	label("Read text:", 240)
-	control("BUTTON", "Read the text in the close-up into shot.md (Windows OCR)", wsTabStop|bsAutoCheckBox, idReadText, 120, 240, 364, 23)
+	label("Read text:", 272)
+	control("BUTTON", "Read the text in the close-up into shot.md (Windows OCR)", wsTabStop|bsAutoCheckBox, idReadText, 120, 272, 364, 23)
 
-	settingsHint = control("STATIC", hintDefault, 0, idHint, 16, 280, 468, 20)
+	settingsHint = control("STATIC", hintDefault, 0, idHint, 16, 312, 468, 20)
 
 	refreshSettingsWindow()
 	pShowWindow.Call(settingsWindow, 5) // SW_SHOW
@@ -202,6 +206,7 @@ func refreshSettingsWindow() {
 	defer func() { settingsLoading = false }()
 	cfg := loadSettings()
 	setText(settingsFields[idShortcut], cfg.Hotkey)
+	setText(settingsFields[idMarkup], cfg.Markup)
 	setText(settingsFields[idFolder], cfg.Folder)
 	setText(settingsFields[idPrefix], *cfg.Prefix)
 	keep := 0
@@ -248,6 +253,11 @@ func settingsProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr 
 		case id == idShortcutDefault:
 			setText(settingsFields[idShortcut], defaultHotkey)
 			applyShortcut(defaultHotkey, true)
+		case id == idMarkup && (code == enChange || code == enKillFocus):
+			applyMarkupShortcut(strings.TrimSpace(getText(settingsFields[idMarkup])), code == enKillFocus)
+		case id == idMarkupDefault:
+			setText(settingsFields[idMarkup], defaultMarkup)
+			applyMarkupShortcut(defaultMarkup, true)
 		case id == idFolder && code == enKillFocus:
 			applyFolder(strings.TrimSpace(getText(settingsFields[idFolder])))
 		case id == idFolderChoose:
@@ -304,6 +314,7 @@ func settingsProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr 
 		return brush
 	case wmClose:
 		applyShortcut(strings.TrimSpace(getText(settingsFields[idShortcut])), true)
+		applyMarkupShortcut(strings.TrimSpace(getText(settingsFields[idMarkup])), true)
 		applyFolder(strings.TrimSpace(getText(settingsFields[idFolder])))
 		pDestroyWindow.Call(hwnd)
 		return 0
@@ -335,6 +346,33 @@ func applyShortcut(value string, final bool) {
 		return
 	}
 	setTrayTip(value)
+	setHint(hintDefault)
+}
+
+// applyMarkupShortcut is applyShortcut for the mark-up shortcut.
+func applyMarkupShortcut(value string, final bool) {
+	if _, _, err := parseHotkey(value); err != nil {
+		if final {
+			setHint("A shortcut is modifiers plus one key, like ctrl+shift+2, ctrl+alt+a or win+shift+f10.")
+		}
+		return
+	}
+	value = strings.ToLower(strings.ReplaceAll(value, " ", ""))
+	cfg := loadSettings()
+	if value == cfg.Markup && !final {
+		return
+	}
+	if value == cfg.Hotkey {
+		if final {
+			setHint("That is the smugshot shortcut. Pick another for marking up.")
+		}
+		return
+	}
+	setSetting("markupHotkey", value)
+	if !registerMarkupHotkey(value) {
+		setHint("That shortcut is taken by another program. Pick another.")
+		return
+	}
 	setHint(hintDefault)
 }
 
