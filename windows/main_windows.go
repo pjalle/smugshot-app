@@ -235,6 +235,7 @@ func main() {
 	if !registerHotkey(hotkey) {
 		pMessageBeep.Call(0x10) // the hotkey is taken by something else
 	}
+	registerMarkupHotkey(loadSettings().Markup) // quietly: most people never mark up
 	addTrayIcon(hotkey)
 	showRunning(false)
 
@@ -249,6 +250,9 @@ func main() {
 				continue
 			}
 		}
+		if noteKey(&m) { // Enter, Ctrl+Enter and Esc in a mark-up's note box
+			continue
+		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		pDispatchMessage.Call(uintptr(unsafe.Pointer(&m)))
 	}
@@ -262,29 +266,54 @@ func registerHotkey(hotkey string) bool {
 	if err != nil {
 		return false
 	}
-	pUnregisterHotKey.Call(overlay, 1)
-	ok, _, _ := pRegisterHotKey.Call(overlay, 1, uintptr(modifiers|modNoRepeat), uintptr(key))
+	pUnregisterHotKey.Call(overlay, hotkeyShot)
+	ok, _, _ := pRegisterHotKey.Call(overlay, hotkeyShot, uintptr(modifiers|modNoRepeat), uintptr(key))
 	return ok != 0
+}
+
+// registerMarkupHotkey is registerHotkey for the mark-up hotkey.
+func registerMarkupHotkey(hotkey string) bool {
+	modifiers, key, err := parseHotkey(hotkey)
+	if err != nil {
+		return false
+	}
+	pUnregisterHotKey.Call(overlay, hotkeyMarkup)
+	ok, _, _ := pRegisterHotKey.Call(overlay, hotkeyMarkup, uintptr(modifiers|modNoRepeat), uintptr(key))
+	return ok != 0
+}
+
+// stop is Esc or a right-click on the drag layer: the end of a mark-up, keeping its spots, or no smugshot.
+func stop() {
+	if markup.on {
+		endMarkup()
+	} else {
+		cancel()
+	}
 }
 
 func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	switch message {
 	case wmHotKey:
-		if active {
+		switch {
+		case markup.on: // either hotkey ends a mark-up, keeping the spots so far
+			endMarkup()
+		case active:
 			cancel()
-		} else {
+		case wParam == hotkeyMarkup:
+			startMarkup()
+		default:
 			begin()
 		}
 		return 0
 	case wmKeyDown:
 		if wParam == vkEscape {
-			cancel()
+			stop()
 		} else if active && pasteKey != 0 && uint32(wParam) == pasteKey && lParam&(1<<30) == 0 { // not the key repeating
 			togglePaste()
 		}
 		return 0
 	case wmRButtonDown:
-		cancel()
+		stop()
 		return 0
 	case wmLButtonDown:
 		if active {
@@ -382,7 +411,10 @@ func selection() rect {
 
 // begin pictures the whole desktop first, then puts up the drag layer, so the layer is never in the picture.
 func begin() {
-	rememberCameFrom() // before the drag layer takes the front
+	first := !markup.on || len(markup.spots) == 0 // a mark-up's later spots come back from its own note box
+	if first {
+		rememberCameFrom() // before the drag layer takes the front
+	}
 	x, _, _ := pGetSystemMetrics.Call(smXVirtual)
 	y, _, _ := pGetSystemMetrics.Call(smYVirtual)
 	w, _, _ := pGetSystemMetrics.Call(smCXVirtual)
@@ -396,7 +428,9 @@ func begin() {
 	active, dragging, startedAt = true, false, time.Now()
 	cfg := loadSettings()
 	_, pasteKey, _ = parseHotkey(cfg.Hotkey)
-	pasteThisShot = cfg.pasteOn()
+	if first {
+		pasteThisShot = cfg.pasteOn()
+	}
 	pSetWindowPos.Call(overlay, ^uintptr(0), uintptr(int32(x)), uintptr(int32(y)), w, h, 0x0040) // HWND_TOPMOST, SWP_SHOWWINDOW
 	pSetForegroundWindow.Call(overlay)                                                           // so Esc reaches us
 	updatePasteHint(cfg)                                                                         // after the layer, so the line sits above it
@@ -412,17 +446,46 @@ func cancel() {
 }
 
 func finish() {
+	if markup.on {
+		finishSpot()
+		return
+	}
 	sel := selection()
 	picture := shot
 	at := startedAt
 	cancel()
-	if picture == nil || sel.Right-sel.Left < 4 || sel.Bottom-sel.Top < 4 {
+	if picture == nil || tooSmall(sel) {
 		return
 	}
+	dir, err := newFolder(at)
+	if err != nil {
+		pMessageBeep.Call(0x10)
+		return
+	}
+	app, title, fullRegion, size, ok := saveCapture(picture, sel, dir, "crop.png", "full.png")
+	if !ok {
+		pMessageBeep.Call(0x10)
+		return
+	}
+	cfg := loadSettings()
+	note := ""
+	if cfg.readTextOn() {
+		note = textSection(readText(filepath.Join(dir, "crop.png")))
+	}
+	path := filepath.Join(dir, "shot.md")
+	os.WriteFile(path, []byte(shotText(dir, at, app, title, fullRegion, size, note)), 0o600)
+	deliver(path, cfg)
+}
 
+// tooSmall is a click, or a drag too small to mean anything.
+func tooSmall(sel rect) bool { return sel.Right-sel.Left < 4 || sel.Bottom-sel.Top < 4 }
+
+// saveCapture writes the close-up and the whole screen for one drag into dir, under the names given, and says
+// which app and window were under it. Call it with the drag layer out of the way.
+func saveCapture(picture *image.RGBA, sel rect, dir, cropName, fullName string) (app, title string, fullRegion image.Rectangle, size image.Point, ok bool) {
 	// The app and window under the middle of the drag, now that our layer is out of the way.
 	centre := point{origin.X + (sel.Left+sel.Right)/2, origin.Y + (sel.Top+sel.Bottom)/2}
-	app, title := windowAt(centre)
+	app, title = windowAt(centre)
 
 	// Only the screen the drag was on, like the Mac version.
 	mon := monitorRect(centre)
@@ -435,23 +498,15 @@ func finish() {
 	}
 	region := image.Rect(int(sel.Left), int(sel.Top), int(sel.Right), int(sel.Bottom)).Sub(screenRect.Min).Intersect(flat.Bounds())
 
-	dir, err := newFolder(at)
-	if err != nil {
-		pMessageBeep.Call(0x10)
-		return
-	}
 	fullImg, fullRegion := full(flat, region)
-	if writePNG(fullImg, filepath.Join(dir, "full.png")) != nil || writePNG(crop(flat, region), filepath.Join(dir, "crop.png")) != nil {
-		pMessageBeep.Call(0x10)
-		return
+	if writePNG(fullImg, filepath.Join(dir, fullName)) != nil || writePNG(crop(flat, region), filepath.Join(dir, cropName)) != nil {
+		return app, title, fullRegion, fullImg.Bounds().Size(), false
 	}
-	cfg := loadSettings()
-	note := ""
-	if cfg.readTextOn() {
-		note = textSection(readText(filepath.Join(dir, "crop.png")))
-	}
-	path := filepath.Join(dir, "shot.md")
-	os.WriteFile(path, []byte(shotText(dir, at, app, title, fullRegion, fullImg.Bounds().Size(), note)), 0o600)
+	return app, title, fullRegion, fullImg.Bounds().Size(), true
+}
+
+// deliver hands a finished shot.md over: the path on the clipboard, pasted if asked, then the sound and the banner.
+func deliver(path string, cfg settings) {
 	// The text in front matters less on Windows (paths start with a drive letter), but agents key on it.
 	setClipboard(*cfg.Prefix + path)
 	lastPath = path
@@ -625,6 +680,7 @@ func showTrayMenu(hwnd uintptr) {
 	}
 	cfg := loadSettings()
 	item(mfGrayed, menuHint, "Press "+hotkeyLabel(cfg.Hotkey)+", drag, paste the path")
+	item(mfGrayed, menuHint, "Press "+hotkeyLabel(cfg.Markup)+" to mark up several spots, a note on each")
 	pAppendMenu.Call(menu, mfSeparator, 0, 0)
 	recentDirs = recent(cfg.Folder, 5)
 	if lastPath == "" && len(recentDirs) > 0 {

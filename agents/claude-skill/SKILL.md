@@ -15,6 +15,12 @@ The user pressed a hotkey, dragged over part of their screen, and pasted `smugsh
 
 Several smugshots in one message are separate things the user is pointing at. Read each one.
 
+## A marked-up smugshot: several spots, a note on each
+
+When `shot.md` has a `- Spots: N` line near the top, the user marked several spots in one go and typed a note for each. The file then has a `## Spot 1`, `## Spot 2`… section per spot, in the order they were dragged, each with the user's note (quoted with `>`, or "No note, only the spot"), its own pictures (`crop-01.png` and `full-01.png`, then `-02`, and so on), its app and window, and the same "What was there", "Web element" and "Text read from the close-up" parts as a plain smugshot, as `###` headings under the spot.
+
+Take the spots in order. For each, read the note first: it says what the user means about that spot. Then its close-up, and its whole screen only when you need the surroundings. Each whole screen was taken when its spot was dragged, so the spots can be on different screens, windows or scroll positions. The notes together are the user's message; answer them as one.
+
 ## How to use what you find
 
 - **The outline is the subject.** Anything outside it is context, not the question.

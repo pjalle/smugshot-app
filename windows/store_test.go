@@ -298,3 +298,67 @@ func TestPasteHint(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkupText(t *testing.T) {
+	at := time.Date(2026, 11, 1, 12, 30, 0, 0, time.UTC)
+	c1, f1 := spotFiles(1)
+	c2, f2 := spotFiles(2)
+	if c1 != "crop-01.png" || f2 != "full-02.png" {
+		t.Errorf("spotFiles = %q, %q", c1, f2)
+	}
+	text := markupText(`C:\x`, at, []spot{
+		{Crop: c1, Full: f1, Region: image.Rect(1, 2, 11, 22), Size: image.Pt(2000, 1125), App: "chrome.exe", Window: "Softr", Note: "this button\r\nshould be blue ", Text: []string{"Save"}},
+		{Crop: c2, Full: f2, Region: image.Rect(5, 5, 9, 9), Size: image.Pt(2000, 1125)},
+	})
+	for _, want := range []string{
+		"marked 2 spots on their screen",
+		"- Spots: 2\r\n",
+		"## Spot 1\r\nThe user's note:\r\n> this button\r\n> should be blue\r\n\r\n- Close-up: " + filepath.Join(`C:\x`, "crop-01.png"),
+		"- Region in full-01.png (pixels): x 1, y 2, w 10, h 20 of 2000x1125\r\n\r\n### Text read from the close-up\r\n",
+		"## Spot 2\r\nNo note, only the spot.\r\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("markupText is missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "## Spot 2\r\nNo note, only the spot.\r\n\r\n- Close-up: "+filepath.Join(`C:\x`, "crop-02.png")+"\r\n- Whole screen: "+filepath.Join(`C:\x`, "full-02.png")+"\r\n- App:") {
+		t.Errorf("a spot with no app should have no App line:\n%s", text)
+	}
+	if one := markupText(`C:\x`, at, []spot{{Crop: c1, Full: f1}}); !strings.Contains(one, "marked 1 spot on their screen, typed a note for it,") {
+		t.Errorf("one spot should be singular:\n%s", one)
+	}
+}
+
+func TestMarkupSummaryAndHint(t *testing.T) {
+	dir := t.TempDir()
+	shot := filepath.Join(dir, "2026-11-01-123000")
+	os.Mkdir(shot, 0o700)
+	os.WriteFile(filepath.Join(shot, "shot.md"), []byte(markupText(shot, time.Now(), []spot{
+		{Crop: "crop-01.png", Full: "full-01.png", App: "chrome.exe", Window: "Softr"},
+		{Crop: "crop-02.png", Full: "full-02.png", App: "Code.exe", Window: "main.go"},
+	})), 0o600)
+	if s := summary(shot); s != "12:30  2 spots  chrome.exe: Softr" {
+		t.Errorf("summary of a mark-up = %q", s)
+	}
+	if h := markupHint(1, ""); h != "Marking up: drag the first spot · Esc to stop" {
+		t.Errorf("markupHint(1) = %q", h)
+	}
+	if h := markupHint(3, "Pastes into Claude"); h != "Marking up: drag spot 3 · Esc when done · Pastes into Claude" {
+		t.Errorf("markupHint(3) = %q", h)
+	}
+}
+
+func TestMarkupHotkeySetting(t *testing.T) {
+	if s := parseSettings(nil); s.Markup != defaultMarkup {
+		t.Errorf("default markup hotkey = %q", s.Markup)
+	}
+	if s := parseSettings([]byte(`{"markupHotkey":"ctrl+alt+a"}`)); s.Markup != "ctrl+alt+a" {
+		t.Errorf("markup hotkey = %q", s.Markup)
+	}
+	if s := parseSettings([]byte(`{"markupHotkey":"nonsense"}`)); s.Markup != defaultMarkup {
+		t.Errorf("a broken markup hotkey should fall back, got %q", s.Markup)
+	}
+	if s := parseSettings([]byte(settingsTemplate)); s.Markup != defaultMarkup {
+		t.Errorf("the template should give the default markup hotkey, got %q", s.Markup)
+	}
+}

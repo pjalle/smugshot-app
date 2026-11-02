@@ -6,7 +6,7 @@ A pointing tool for working with AI agents. It's "screenshot" crossed with "mugs
 
 Press a hotkey, drag over part of your screen, paste a path into a chat with an agent that can read your disk. The agent gets the whole screen with your part outlined, a sharp close-up, and a small text file that says what it is looking at. There is no editor and no annotation step. The drag is the whole gesture.
 
-Mac (macOS 15 or later) is the full version. Windows has the gesture, the text read from the close-up and "paste it for me"; Linux has the gesture only; see the end.
+Mac (macOS 15 or later) is the full version. Windows has the gesture, the text read from the close-up, "paste it for me" and mark-up (several spots, a note on each); Linux has the gesture only; see the end.
 
 **Download:** https://smugshot.io, free. Or read the code here and build it yourself; see "Check it yourself" at the end.
 
@@ -23,6 +23,8 @@ Mac (macOS 15 or later) is the full version. Windows has the gesture, the text r
 To cancel: Esc, a right-click, a click without dragging, or the hotkey again.
 
 **Paste it for me** (off by default; the **Paste into** setting): after the drag, Smugshot brings an app to the front and presses ⌘V there, so the path lands where the cursor is. It never presses Enter; you still send it. Pick "The app I came from" (the app in front when you pressed the shortcut, usually your terminal) or a fixed app. While the screen is frozen, a line at the top says where it will paste, and pressing the shortcut's key on its own (**1** for the default shortcut) switches pasting on or off for that one smugshot. It also works when the setting is off: press **1** and that one smugshot is pasted into the app you came from.
+
+**Mark up several spots, a note on each** (**Command + Shift + 2**, also in Settings): for when one drag is not enough. Drag a spot, and a small box opens beside it: type what you mean about it. **↩** saves the note and freezes the screen again for the next spot; **⇧↩** is a new line in the note; **Esc** in the box drops that spot. **⌘↩**, Esc on the frozen screen, or either shortcut ends it, and the path goes on the clipboard like any smugshot. Each whole screen is taken when its spot is dragged, so you can scroll or switch windows between spots. A click without a drag does nothing while marking up; drag again.
 
 The menu bar menu has **Copy last smugshot again** for one more question about the same thing, **Recent smugshots** with the last five (a thumbnail and the app; hold Option to show one in Finder instead), and **Quiet** for calls and screen shares: no sound, no icon flash. **What's new** shows what changed in each version. **Check for updates…** shows the version you have and opens smugshot.io in your browser, where the newest version is named; Smugshot itself never goes online, so it does not check or update on its own.
 
@@ -43,6 +45,8 @@ The word in front of the path is there on purpose. A message that starts with `/
 - **What was there**: the actual control under the drag (role, label, state, and for web pages the DOM id and classes), its parents up to the window, and what else sits inside the dragged area. It comes from the Mac's accessibility layer, the one screen readers use, so it works in any well-built app.
 - **Text read from the close-up**: recognised on your Mac from the picture. It is there even in apps that publish nothing, like games and canvas apps.
 - The app, the window title and, in a browser, the page address.
+
+A marked-up smugshot is the same folder with `crop-01.png` and `full-01.png` onwards, one pair per spot, and a `shot.md` that starts with a `- Spots: N` line and then lists the spots in order: the note, both pictures, the app and window, and the same three sections for each spot.
 
 Two pictures because agents shrink big images before the model sees them (Claude Code to 2000 pixels on the long side). On a Retina screen that blurs small text, so the close-up is kept sharp and both pictures are capped at 2000 pixels.
 
@@ -82,6 +86,7 @@ Why the certificate: without a stable signature, macOS sees every rebuild as a n
 | Setting | What it does | Default |
 |---|---|---|
 | Shortcut | Click the button, press the new keys. It needs Command, Control or Option, so it can be taken from every app. If another app already has it, the menu says so. | ⇧⌘1 |
+| Mark-up | The shortcut for a marked-up smugshot: several spots, a note typed on each. Recorded the same way, and it cannot be the same keys as the shortcut above. | ⇧⌘2 |
 | Save to | The folder smugshots are written to, each in its own timestamped folder. Smugshot only ever deletes folders named like a smugshot, so a folder that holds other things is safe. The Claude Code skill was allowed to read `~/.smugshots` only; with another folder Claude Code asks before reading each smugshot. | `~/.smugshots` |
 | Keep for | How long a smugshot stays on disk, counted from when it was taken: 1 minute, 2, 5, 10, 30 minutes, 1 hour, 1 day, 1 week, or Forever. Agents read the files within seconds of the paste, so a few minutes is plenty. | 1 day |
 | Clipboard text | The text in front of the path, spaces included. It is there because a message that starts with `/` is read as a command by Claude Code and other chat tools. Empty is allowed. | `smugshot: ` |
@@ -102,12 +107,14 @@ defaults write com.pjalle.smugshot quiet -bool true
 defaults write com.pjalle.smugshot sound -string pop            # screen-capture, shutter, frog, pop, sent, tink
 defaults write com.pjalle.smugshot hotkeyKeyCode -int 18        # 18 is the "1" key
 defaults write com.pjalle.smugshot hotkeyModifiers -int 768     # 256 Command + 512 Shift (2048 Option, 4096 Control)
+defaults write com.pjalle.smugshot markupKeyCode -int 19        # the mark-up shortcut; 19 is the "2" key
+defaults write com.pjalle.smugshot markupModifiers -int 768
 defaults delete com.pjalle.smugshot folder                      # back to the default
 ```
 
 ## Working on it
 
-- `Sources/Smugshot/`: `HotKey` (system hotkey), `Capturer` (the picture), `Overlay` (the drag layer), `Renderer` (full.png and crop.png), `Accessibility` (what was there), `Paster` (paste it for me: bring an app forward and press ⌘V, and the list of known apps), `TextReader` (text from the close-up), `Browser` (the web element), `Store` (the folder, cleanup, shot.md), `Settings` (the settings, the retention presets, the shortcut and key names), `SettingsWindow`, `WhatsNewWindow` (the changelog in the app; `build.sh` puts it there, without the lines that are not about the app), `AppDelegate` (the gesture and the menu), `MenuBarIcon`.
+- `Sources/Smugshot/`: `HotKey` (system hotkey), `Capturer` (the picture), `Overlay` (the drag layer), `Renderer` (full.png and crop.png), `Accessibility` (what was there), `Paster` (paste it for me: bring an app forward and press ⌘V, and the list of known apps), `TextReader` (text from the close-up), `Browser` (the web element), `Store` (the folder, cleanup, shot.md), `Markup` (a marked-up smugshot: the spots, their shot.md and the note box), `Settings` (the settings, the retention presets, the shortcut and key names), `SettingsWindow`, `WhatsNewWindow` (the changelog in the app; `build.sh` puts it there, without the lines that are not about the app), `AppDelegate` (the gesture, the mark-up flow and the menu), `MenuBarIcon`.
 - `windows/` is also the Linux version. `main_linux.go` picks the half to run; `x11_linux.go` is the X11 one (the shortcut, the drag layer, the picture, the window under the drag, the clipboard); `wayland_linux.go` is the Wayland one (the drag layer as a layer-shell or fullscreen surface, the shm buffers, the pointer, the clipboard through wl_data_device); `capture_linux.go` takes the Wayland picture, by the wlroots screencopy protocol or the desktop's screenshot service. `wlproto/` holds the two wlroots protocols, generated from their XML by the wayland-scanner (`go generate ./wlproto/...`); do not edit them by hand. `store.go`, `render.go`, `settings.go` and `sound.go` are shared with Windows. `./scripts/build-linux.sh` builds it.
 - `agents/claude-skill/`: the Claude Code skill. `design/chosen/`: the icon, drawn from geometry by `python3 scripts/draw-icon.py` (needs Pillow); `swift scripts/make-icon.swift` then rebuilds `Resources/AppIcon.icns`.
 - Testing without hands on the mouse: `defaults write com.pjalle.smugshot enableTestHook -bool true`, restart, and see the comment above `installTestHook` in `AppDelegate.swift`. `./scripts/build.sh` without `SMUGSHOT_VERSION` gives the app the newest version number in `CHANGELOG.md`.
@@ -117,6 +124,8 @@ defaults delete com.pjalle.smugshot folder                      # back to the de
 `windows/` holds a first Windows version written in Go, built from any machine with `./scripts/build-windows.sh`. Press **Ctrl + Shift + 1**, drag, paste; it writes the same three files to `%USERPROFILE%\.smugshots\` and sits in the system tray.
 
 **Settings…** in the tray menu opens a small window (`windows/settings_window.go`): the shortcut (`ctrl+shift+1`, `ctrl+alt+s`, `win+shift+f9`: modifiers plus one key, typed as text), the folder with a Choose… button, how long to keep (the same choices as on the Mac), the clipboard text, the sound (Feed discovered, Menu command, Navigation start and Speech on, which ship with Windows, or Tink, or Off), the "Copied" banner, Paste into (Off, The app I came from, one of Windows Terminal, Visual Studio Code, Cursor, Windsurf, WezTerm, Alacritty, Claude and ChatGPT, or the file name of another program, typed in) and Read text. Every change is saved as it is made, and a new shortcut works at once. Behind the window is a small file, `%APPDATA%\Smugshot\settings.json`, which can also be edited by hand (`folder`, `keepFor`, `prefix`, `hotkey`, `sound` by name or `off`, `banner`, `pasteInto` as `off`, `previous` or a program's file name like `WindowsTerminal.exe`, `readText`); a hotkey changed by hand needs a restart. The tray menu starts with the shortcut to press and also has "Copy last smugshot again", the last five smugshots, the Sound choices and the Banner switch, and "Check for updates…", which opens smugshot.io in your browser.
+
+**Mark-up** is a second shortcut (**Ctrl + Shift + 2**, `markupHotkey` in the settings file, Mark-up in the Settings window) for the times one drag is not enough: drag a spot, type a note in the box that opens beside it, Enter for the next spot, Ctrl + Enter (or Esc on the dimmed screen, or either shortcut) when done. Shift + Enter is a new line in a note; Esc in the box drops that spot. The folder holds `crop-01.png` and `full-01.png` onwards, one pair per spot, each whole screen taken when its spot was dragged, and shot.md lists the spots in order with their notes, their app and window and the text read from each close-up (`windows/markup_windows.go`). The note box is hidden before the next picture, so it is never in one. The plain gesture is not changed by any of this.
 
 It reads the text in the close-up into shot.md with the OCR that ships with Windows 10 and 11, on the machine itself, through Windows PowerShell. With no OCR language installed for your languages the section is left out. Switching it off makes a smugshot land faster.
 

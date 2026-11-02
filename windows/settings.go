@@ -25,6 +25,8 @@ type settings struct {
 	Banner    *bool        `json:"banner"`    // the small "Copied" banner after a smugshot; a pointer so that a missing key means on
 	PasteInto string       `json:"pasteInto"` // "off", "previous" (the app you came from), or a program's file name
 	ReadText  *bool        `json:"readText"`  // the text in the close-up into shot.md; a pointer so that a missing key means on
+
+	Markup string `json:"markupHotkey"` // the hotkey for a marked-up smugshot: several spots, a note typed on each
 }
 
 func (s settings) soundOn() bool    { return s.Sound != soundOff }
@@ -97,6 +99,7 @@ const (
 	defaultKeepFor = "1d"
 	defaultPrefix  = "smugshot: "
 	defaultHotkey  = "ctrl+shift+1"
+	defaultMarkup  = "ctrl+shift+2"
 )
 
 // The keepFor choices in the Settings window, in order, with the words a person reads.
@@ -189,11 +192,12 @@ func pasteHint(thisShot, settingOn bool, destination, key string) string {
 
 // The file written the first time Settings… is opened, so the user sees what can be set.
 const settingsTemplate = `{
-  "_help": "Smugshot settings; the Settings window in the tray menu edits this file. folder: where smugshots go (empty = ~\\.smugshots). keepFor: 1m, 2m, 5m, 10m, 30m, 1h, 1d, 1w or forever. prefix: the text in front of the path on the clipboard, spaces included. hotkey: modifiers plus one key, like ctrl+shift+1, ctrl+alt+s, win+shift+f9; edited by hand it needs a restart. sound: the sound after a smugshot: feed, menu, navigation, speech, tink or off. banner: the small Copied banner after a smugshot, true or false. pasteInto: off, previous (the app you came from) or a program's file name like WindowsTerminal.exe or Code.exe. readText: read the text in the close-up into shot.md with Windows' own OCR, true or false. Changes apply to the next smugshot.",
+  "_help": "Smugshot settings; the Settings window in the tray menu edits this file. folder: where smugshots go (empty = ~\\.smugshots). keepFor: 1m, 2m, 5m, 10m, 30m, 1h, 1d, 1w or forever. prefix: the text in front of the path on the clipboard, spaces included. hotkey: modifiers plus one key, like ctrl+shift+1, ctrl+alt+s, win+shift+f9; edited by hand it needs a restart. markupHotkey: the same, for a marked-up smugshot (several spots, a note typed on each). sound: the sound after a smugshot: feed, menu, navigation, speech, tink or off. banner: the small Copied banner after a smugshot, true or false. pasteInto: off, previous (the app you came from) or a program's file name like WindowsTerminal.exe or Code.exe. readText: read the text in the close-up into shot.md with Windows' own OCR, true or false. Changes apply to the next smugshot.",
   "folder": "",
   "keepFor": "1d",
   "prefix": "smugshot: ",
   "hotkey": "ctrl+shift+1",
+  "markupHotkey": "ctrl+shift+2",
   "sound": "feed",
   "banner": true,
   "pasteInto": "off",
@@ -252,6 +256,9 @@ func parseSettings(data []byte) settings {
 	}
 	if _, _, err := parseHotkey(s.Hotkey); err != nil {
 		s.Hotkey = defaultHotkey
+	}
+	if _, _, err := parseHotkey(s.Markup); err != nil {
+		s.Markup = defaultMarkup
 	}
 	if _, known := soundByName(string(s.Sound)); s.Sound != "" && s.Sound != soundOff && !known {
 		s.Sound = ""

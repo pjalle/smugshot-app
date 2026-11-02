@@ -9,6 +9,8 @@ final class OverlayPanel: NSPanel {
 /// in points with a top-left origin (the same way round as the picture).
 final class OverlayView: NSView {
     var onFinish: ((CGRect?) -> Void)?
+    /// A click, or a drag too small to mean anything, cancels. While marking up it is nothing: drag again.
+    var clickCancels = true
     private var start: NSPoint?
     private var current: NSPoint?
 
@@ -47,7 +49,7 @@ final class OverlayView: NSView {
         let rect = selection?.intersection(bounds)
         start = nil
         current = nil
-        if let rect, rect.width >= 4, rect.height >= 4 { onFinish?(rect) } else { onFinish?(nil) }
+        if let rect, rect.width >= 4, rect.height >= 4 { onFinish?(rect) } else if clickCancels { onFinish?(nil) } else { needsDisplay = true }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -77,7 +79,7 @@ final class Overlay {
     /// `frozen` holds the picture already taken of each screen. It is shown under the drag layer, so the screen
     /// stands still the way it does for the Mac's own Command+Shift+4: a hover state or a tooltip stays visible
     /// while dragging, even though the app underneath has stopped seeing the mouse.
-    func show(on screens: [NSScreen], frozen: [ObjectIdentifier: CGImage] = [:],
+    func show(on screens: [NSScreen], frozen: [ObjectIdentifier: CGImage] = [:], clickCancels: Bool = true,
               onFinish: @escaping (NSScreen, CGRect?) -> Void) {
         for screen in screens {
             let panel = OverlayPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
@@ -91,6 +93,7 @@ final class Overlay {
             panel.isReleasedWhenClosed = false
 
             let view = OverlayView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            view.clickCancels = clickCancels
             view.onFinish = { rect in onFinish(screen, rect) }
             if let image = frozen[ObjectIdentifier(screen)] {
                 // A layer, not drawn in draw(_:), so a drag does not repaint a full Retina picture each time.

@@ -185,6 +185,9 @@ func updatePasteHint(cfg settings) {
 		}
 	}
 	pasteHintText = pasteHint(pasteThisShot, cfg.pasteOn(), destination, hotkeyKey(cfg.Hotkey))
+	if markup.on {
+		pasteHintText = markupHint(len(markup.spots)+1, pasteHintText)
+	}
 	if pasteHintText == "" {
 		hidePasteHint()
 		return
@@ -201,6 +204,9 @@ func updatePasteHint(cfg settings) {
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
 	mon := monitorRect(p)
 	w, h := scale(560), scale(36)
+	if markup.on {
+		w = scale(820) // the mark-up line is longer
+	}
 	x, y := int(mon.Left)+(int(mon.Right-mon.Left)-w)/2, int(mon.Top)+scale(12)
 	pSetWindowPos.Call(hint, ^uintptr(0), uintptr(x), uintptr(y), uintptr(w), uintptr(h), 0x0010|0x0040) // HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW
 	pInvalidateRect.Call(hint, 0, 1)

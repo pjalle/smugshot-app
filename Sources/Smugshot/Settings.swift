@@ -9,6 +9,7 @@ enum Settings {
     static let defaultPrefix = "smugshot: "
     static let defaultRetention = Retention.oneDay
     static let defaultShortcut = Shortcut(keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(cmdKey | shiftKey))
+    static let defaultMarkupShortcut = Shortcut(keyCode: UInt32(kVK_ANSI_2), modifiers: UInt32(cmdKey | shiftKey))
 
     /// Posted on the main thread after any setting changes.
     static let changed = Notification.Name("com.pjalle.smugshot.settingsChanged")
@@ -44,19 +45,29 @@ enum Settings {
     /// The shortcut that starts a smugshot. `defaults write com.pjalle.smugshot hotkeyKeyCode -int 18` and
     /// `hotkeyModifiers -int 768` (256 Command, 512 Shift, 2048 Option, 4096 Control, added together).
     static var shortcut: Shortcut {
-        get {
-            guard defaults.object(forKey: "hotkeyKeyCode") != nil else { return defaultShortcut }
-            return Shortcut(keyCode: UInt32(defaults.integer(forKey: "hotkeyKeyCode")),
-                            modifiers: UInt32(defaults.integer(forKey: "hotkeyModifiers")))
-        }
-        set {
-            if newValue == defaultShortcut {
-                defaults.removeObject(forKey: "hotkeyKeyCode")
-                store(nil, for: "hotkeyModifiers")
-            } else {
-                defaults.set(Int(newValue.keyCode), forKey: "hotkeyKeyCode")
-                store(Int(newValue.modifiers), for: "hotkeyModifiers")
-            }
+        get { shortcut(keyCode: "hotkeyKeyCode", modifiers: "hotkeyModifiers", default: defaultShortcut) }
+        set { store(newValue, keyCode: "hotkeyKeyCode", modifiers: "hotkeyModifiers", default: defaultShortcut) }
+    }
+
+    /// The shortcut that starts a mark-up: several spots, a note typed on each. `defaults write
+    /// com.pjalle.smugshot markupKeyCode -int 19` (the "2" key) and `markupModifiers -int 768`, as above.
+    static var markupShortcut: Shortcut {
+        get { shortcut(keyCode: "markupKeyCode", modifiers: "markupModifiers", default: defaultMarkupShortcut) }
+        set { store(newValue, keyCode: "markupKeyCode", modifiers: "markupModifiers", default: defaultMarkupShortcut) }
+    }
+
+    private static func shortcut(keyCode: String, modifiers: String, default fallback: Shortcut) -> Shortcut {
+        guard defaults.object(forKey: keyCode) != nil else { return fallback }
+        return Shortcut(keyCode: UInt32(defaults.integer(forKey: keyCode)), modifiers: UInt32(defaults.integer(forKey: modifiers)))
+    }
+
+    private static func store(_ shortcut: Shortcut, keyCode: String, modifiers: String, default fallback: Shortcut) {
+        if shortcut == fallback {
+            defaults.removeObject(forKey: keyCode)
+            store(nil, for: modifiers)
+        } else {
+            defaults.set(Int(shortcut.keyCode), forKey: keyCode)
+            store(Int(shortcut.modifiers), for: modifiers)
         }
     }
 

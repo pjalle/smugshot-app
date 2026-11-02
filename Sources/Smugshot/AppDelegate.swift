@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let capturer = Capturer()
     private let overlay = Overlay()
     private var hotKey: HotKey?
+    private var markupHotKey: HotKey?
     private var escapeKey: HotKey?
     /// While the screen is frozen, the shortcut's key on its own switches "Paste it for me" for this one smugshot.
     private var pasteKey: HotKey?
@@ -25,6 +26,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var cameFrom: NSRunningApplication?
     /// Whether this smugshot is pasted for the user: the setting, unless the key switched it for this one.
     private var pasteThisShot = false
+
+    /// The mark-up in flight, or nil. Only one at a time, like the gesture.
+    private struct Markup {
+        let at: Date
+        var folder: URL?          // made with the first spot, so a mark-up stopped before any spot leaves nothing behind
+        var spots: [Spot] = []
+        var reading: [Task<Void, Never>] = [] // the slow reads, one per spot, waited for at the end
+    }
+    private var markup: Markup?
+    private let note = NoteWindow()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setUpStatusItem()
@@ -50,16 +61,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         registerHotKey()
+        note.onNext = { [weak self] in self?.saveNote(); self?.nextSpot() }
+        note.onDone = { [weak self] in self?.endMarkup() }
+        note.onDrop = { [weak self] in self?.dropSpot() }
     }
 
-    /// Takes the shortcut from Settings (default Command + Shift + 1) system-wide. Called again whenever it changes.
+    /// Takes the shortcuts from Settings (Command + Shift + 1 for a smugshot, Command + Shift + 2 for a mark-up)
+    /// system-wide. Called again whenever they change.
     private func registerHotKey() {
         let shortcut = Settings.shortcut
-        if let hotKey, hotKey.keyCode == shortcut.keyCode, hotKey.modifiers == shortcut.modifiers { return }
-        hotKey?.unregister()
-        hotKey = HotKey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, onDown: { [weak self] in self?.hotKeyPressed() })
-        settingsWindow.shortcutTaken = hotKey == nil
-        if hotKey == nil { NSLog("Smugshot: could not register the hotkey \(shortcut.label) (already taken?)") }
+        if hotKey == nil || hotKey?.keyCode != shortcut.keyCode || hotKey?.modifiers != shortcut.modifiers {
+            hotKey?.unregister()
+            hotKey = HotKey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, onDown: { [weak self] in self?.hotKeyPressed() })
+            settingsWindow.shortcutTaken = hotKey == nil
+            if hotKey == nil { NSLog("Smugshot: could not register the hotkey \(shortcut.label) (already taken?)") }
+        }
+        let markupShortcut = Settings.markupShortcut
+        if markupHotKey == nil || markupHotKey?.keyCode != markupShortcut.keyCode || markupHotKey?.modifiers != markupShortcut.modifiers {
+            markupHotKey?.unregister()
+            markupHotKey = HotKey(keyCode: markupShortcut.keyCode, modifiers: markupShortcut.modifiers, onDown: { [weak self] in self?.markupKeyPressed() })
+            settingsWindow.markupTaken = markupHotKey == nil
+            if markupHotKey == nil { NSLog("Smugshot: could not register the mark-up hotkey \(markupShortcut.label) (already taken?)") }
+        }
     }
 
     // MARK: Test hook
@@ -92,9 +115,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Gesture
 
     /// Works like the Mac's own Command+Shift+4: press once, let go, then drag whenever ready.
-    /// Esc, a right-click, a plain click or pressing the hotkey again cancels.
+    /// Esc, a right-click, a plain click or pressing the hotkey again cancels. During a mark-up, either
+    /// shortcut ends it, keeping the spots so far.
     private func hotKeyPressed() {
-        if active { finish(nil, nil) } else { begin() }
+        if markup != nil { endMarkup() } else if active { finish(nil, nil) } else { begin() }
+    }
+
+    private func markupKeyPressed() {
+        if markup != nil { endMarkup() } else if active { finish(nil, nil) } else { startMarkup() }
     }
 
     private func begin() {
@@ -102,9 +130,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !active, !screens.isEmpty else { return }
         active = true
         startedAt = Date()
-        let front = NSWorkspace.shared.frontmostApplication
-        cameFrom = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
-        pasteThisShot = Settings.pasteInto != .off
+        // A mark-up's later spots come back from its own note box, so the app it came from, and whether to
+        // paste, are only taken on the first.
+        if markup == nil || markup?.spots.isEmpty == true {
+            let front = NSWorkspace.shared.frontmostApplication
+            cameFrom = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
+            pasteThisShot = Settings.pasteInto != .off
+        }
 
         // Every screen is pictured now, as the user saw it when they decided to point.
         for screen in screens {
@@ -115,12 +147,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // mouse away from the app underneath before the picture is taken.
         let tasks = captureTasks
         let started = startedAt
+        let markingUp = markup != nil
         Task { @MainActor in
             var frozen: [ObjectIdentifier: CGImage] = [:]
             for (id, task) in tasks { frozen[id] = try? await task.value }
             guard self.active, self.startedAt == started else { return }
-            self.overlay.show(on: screens, frozen: frozen) { [weak self] screen, rect in self?.finish(screen, rect) }
-            self.overlay.showHint(self.pasteHint())
+            // While marking up, a click without a drag is nothing: drag again.
+            self.overlay.show(on: screens, frozen: frozen, clickCancels: !markingUp) { [weak self] screen, rect in self?.finish(screen, rect) }
+            self.overlay.showHint(self.hint())
         }
         escapeKey = HotKey(keyCode: UInt32(kVK_Escape), modifiers: 0, onDown: { [weak self] in self?.finish(nil, nil) })
         pasteKey = HotKey(keyCode: Settings.shortcut.keyCode, modifiers: 0, onDown: { [weak self] in self?.togglePaste() })
@@ -130,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func togglePaste() {
         guard active else { return }
         pasteThisShot.toggle()
-        overlay.showHint(pasteHint())
+        overlay.showHint(hint())
     }
 
     /// Where this smugshot would be pasted, or nil when there is nowhere.
@@ -141,7 +175,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// The line at the top of the frozen screen. Nothing when pasting is off and was not touched.
+    /// The line at the top of the frozen screen. Nothing when pasting is off and was not touched, except
+    /// while marking up, which always says which spot is next.
+    private func hint() -> String? {
+        let paste = pasteHint()
+        guard let markup else { return paste }
+        return ShotFile.markupHint(next: markup.spots.count + 1, paste: paste)
+    }
+
     private func pasteHint() -> String? {
         let key = KeyName.of(Settings.shortcut.keyCode)
         if pasteThisShot {
@@ -151,23 +192,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return Settings.pasteInto == .off ? nil : "Not pasting this time · \(key) switches it back on"
     }
 
-    private func finish(_ screen: NSScreen?, _ rect: CGRect?) {
-        guard active else { return }
+    /// Takes the drag layer down, and the keys that go with it. The picture of `screen` is handed back; the
+    /// rest are cancelled.
+    private func takeDown(keeping screen: NSScreen?) -> Task<CGImage, Error>? {
         overlay.hide()
         escapeKey?.unregister()
         escapeKey = nil
         pasteKey?.unregister()
         pasteKey = nil
-        let destination = pasteThisShot ? pasteDestination() : nil
-
         let tasks = captureTasks
         captureTasks = [:]
-        guard let rect, let screen, let captureTask = tasks[ObjectIdentifier(screen)] else {
-            tasks.values.forEach { $0.cancel() }
+        let keep = screen.map { ObjectIdentifier($0) }
+        for (id, task) in tasks where id != keep { task.cancel() }
+        return keep.flatMap { tasks[$0] }
+    }
+
+    private func finish(_ screen: NSScreen?, _ rect: CGRect?) {
+        guard active else { return }
+        if markup != nil {
+            if let screen, let rect { finishSpot(screen, rect) } else { endMarkup() }
+            return
+        }
+        let destination = pasteThisShot ? pasteDestination() : nil
+        let captureTask = takeDown(keeping: screen)
+        guard let rect, let screen, let captureTask else {
             active = false
             return
         }
-        tasks.filter { $0.key != ObjectIdentifier(screen) }.values.forEach { $0.cancel() }
 
         let date = startedAt
         Task { @MainActor in
@@ -175,26 +226,137 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 let image = try await captureTask.value
                 let path = try await Self.save(image: image, rect: rect, screen: screen, date: date)
-                self.copyToClipboard(URL(fileURLWithPath: path))
-                if !Settings.quiet {
-                    Settings.sound.play()
-                    self.flash("checkmark.circle.fill")
-                }
-                if let destination, await !Paster.paste(into: destination) {
-                    // The path is on the clipboard all the same; the user pastes it by hand.
-                    if !Settings.quiet { self.flash("exclamationmark.triangle.fill") }
-                }
+                await self.deliver(path: path, destination: destination)
             } catch {
-                NSLog("Smugshot: \(error)")
-                if !Settings.quiet {
-                    NSSound(named: "Basso")?.play()
-                    self.flash("exclamationmark.triangle.fill")
-                }
+                self.failed(error)
             }
             Store.sweep()
             await self.capturer.refresh()
         }
     }
+
+    /// Hands a finished shot.md over: the path on the clipboard, pasted if asked, then the sound and the flash.
+    private func deliver(path: String, destination: Paster.Destination?) async {
+        copyToClipboard(URL(fileURLWithPath: path))
+        if !Settings.quiet {
+            Settings.sound.play()
+            flash("checkmark.circle.fill")
+        }
+        if let destination, await !Paster.paste(into: destination) {
+            // The path is on the clipboard all the same; the user pastes it by hand.
+            if !Settings.quiet { flash("exclamationmark.triangle.fill") }
+        }
+    }
+
+    private func failed(_ error: Error) {
+        NSLog("Smugshot: \(error)")
+        if !Settings.quiet {
+            NSSound(named: "Basso")?.play()
+            flash("exclamationmark.triangle.fill")
+        }
+    }
+
+    // MARK: Mark-up
+
+    private func startMarkup() {
+        guard !active else { return }
+        markup = Markup(at: Date())
+        begin()
+        if !active { markup = nil } // no screen to picture
+    }
+
+    /// The end of one drag while marking up: save the two pictures, start the slow reads, and ask for the note.
+    private func finishSpot(_ screen: NSScreen, _ rect: CGRect) {
+        guard markup != nil, let captureTask = takeDown(keeping: screen) else { endMarkup(); return }
+        active = false
+        let at = markup?.at
+        Task { @MainActor in
+            let image: CGImage
+            do { image = try await captureTask.value } catch { self.failed(error); self.nextSpot(); return }
+            // Not if the mark-up ended while the picture was on its way.
+            guard var m = self.markup, m.at == at else { return }
+            do {
+                let folder = try m.folder ?? Store.newFolder(at: m.at)
+                m.folder = folder
+                let names = Spot.files(m.spots.count + 1)
+                let capture = try Self.saveCapture(image: image, rect: rect, screen: screen, folder: folder, cropName: names.crop, fullName: names.full)
+                let spot = Spot(crop: names.crop, full: names.full, region: capture.region, fullSize: capture.fullSize, target: capture.target)
+                m.spots.append(spot)
+                m.reading.append(Task { @MainActor in
+                    let read = await Self.gather(capture)
+                    spot.url = read.web?.url ?? read.controls?.url
+                    spot.controls = read.controls
+                    spot.web = read.web
+                    spot.words = read.words
+                })
+                self.markup = m
+                self.note.open(spot: m.spots.count, below: rect, on: screen)
+            } catch {
+                self.markup = m
+                self.failed(error)
+                self.nextSpot()
+            }
+        }
+    }
+
+    /// Freezes the screen again for another spot, once the note box is off it, so the box is never in the
+    /// next picture.
+    private func nextSpot() {
+        note.hide()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard self.markup != nil, !self.active else { return }
+            self.begin()
+            if !self.active { self.endMarkup() }
+        }
+    }
+
+    private func saveNote() {
+        guard note.isOpen, let spot = markup?.spots.last else { return }
+        spot.note = note.text
+    }
+
+    /// Esc in the note box: the last spot goes, files and all.
+    private func dropSpot() {
+        guard var m = markup, let spot = m.spots.popLast() else { return }
+        if let folder = m.folder {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(spot.crop))
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(spot.full))
+        }
+        markup = m
+        nextSpot()
+    }
+
+    /// Writes shot.md for the spots so far and hands it over. With no spots there is no smugshot.
+    private func endMarkup() {
+        guard let m = markup else { return }
+        saveNote()
+        note.hide()
+        markup = nil
+        if active {
+            _ = takeDown(keeping: nil)
+            active = false
+        }
+        let destination = pasteThisShot ? pasteDestination() : nil
+        Task { @MainActor in
+            for task in m.reading { await task.value } // the slow reads take a second or so per spot
+            guard let folder = m.folder, !m.spots.isEmpty else {
+                if let folder = m.folder { try? FileManager.default.removeItem(at: folder) } // every spot was dropped
+                return
+            }
+            let shot = folder.appendingPathComponent("shot.md")
+            do {
+                try ShotFile.markupText(folder: folder, date: m.at, spots: m.spots).write(to: shot, atomically: true, encoding: .utf8)
+                await self.deliver(path: shot.path, destination: destination)
+            } catch {
+                self.failed(error)
+            }
+            Store.sweep()
+            await self.capturer.refresh()
+        }
+    }
+
+    // MARK: Saving
 
     /// Puts a shot.md path on the clipboard, with the prefix in front: a bare path starts with "/", which chat
     /// tools read as a command.
@@ -204,45 +366,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lastShot = shot
     }
 
+    /// One drag, pictured and written: what the slow reads need to know about it.
+    struct Capture {
+        let image: CGImage        // the raw screen picture
+        let rawRegion: CGRect     // the drag in its pixels
+        let region: CGRect        // the drag in full.png's pixels
+        let fullSize: CGSize
+        let global: CGRect        // the drag in the whole desktop's points, counted from the top-left of the main screen
+        let scale: CGFloat
+        let target: Target
+    }
+
+    /// Writes the close-up and the whole screen for one drag into `folder`, under the names given, and says
+    /// which app and window were under it.
     @MainActor
-    private static func save(image: CGImage, rect: CGRect, screen: NSScreen, date: Date) async throws -> String {
+    private static func saveCapture(image: CGImage, rect: CGRect, screen: NSScreen, folder: URL, cropName: String, fullName: String) throws -> Capture {
         // Each screen has its own scale, so it is read off the picture itself.
         let scale = CGFloat(image.width) / screen.frame.width
         let region = rect.applying(CGAffineTransform(scaleX: scale, y: scale)).integral
 
         guard let (full, fullRegion) = Renderer.full(image: image, region: region),
               let crop = Renderer.crop(image: image, region: region) else { throw CocoaError(.fileWriteUnknown) }
-
-        let folder = try Store.newFolder(at: date)
-        guard Renderer.writePNG(full, to: folder.appendingPathComponent("full.png")),
-              Renderer.writePNG(crop, to: folder.appendingPathComponent("crop.png")) else { throw CocoaError(.fileWriteUnknown) }
+        guard Renderer.writePNG(full, to: folder.appendingPathComponent(fullName)),
+              Renderer.writePNG(crop, to: folder.appendingPathComponent(cropName)) else { throw CocoaError(.fileWriteUnknown) }
 
         // The drag in the whole desktop's coordinates, counted from the top-left of the main screen,
         // which is how windows and the accessibility layer count.
         let mainHeight = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
         let global = CGRect(x: screen.frame.minX + rect.minX, y: mainHeight - screen.frame.maxY + rect.minY,
                             width: rect.width, height: rect.height)
-        let target = Target.under(CGPoint(x: global.midX, y: global.midY))
+        return Capture(image: image, rawRegion: region, region: fullRegion, fullSize: CGSize(width: full.width, height: full.height),
+                       global: global, scale: scale, target: Target.under(CGPoint(x: global.midX, y: global.midY)))
+    }
 
-        // Each of these can be switched off in Settings. Slow reads happen off the main thread; the browser
-        // question has to be asked on it.
+    /// The slow reads for one drag. Each can be switched off in Settings. The controls and the text are read
+    /// off the main thread; the browser question has to be asked on it.
+    @MainActor
+    private static func gather(_ capture: Capture) async -> (controls: Accessibility.Description?, web: Browser.Result?, words: [String]) {
         let (nameControls, readText, webElement) = (Settings.nameControls, Settings.readText, Settings.webElement)
+        let (image, rawRegion, global, target) = (capture.image, capture.rawRegion, capture.global, capture.target)
         async let controlsRead = Task.detached {
             nameControls ? target.pid.map { Accessibility.describe(region: global, pid: $0) } : nil
         }.value
         async let wordsRead = Task.detached {
-            readText ? Renderer.raw(image: image, region: region).map(TextReader.read) ?? [] : []
+            readText ? Renderer.raw(image: image, region: rawRegion).map(TextReader.read) ?? [] : []
         }.value
         let controls = await controlsRead
         let web = webElement ? target.bundleID.flatMap {
-            Browser.element(bundleID: $0, region: global, webArea: controls?.webAreaFrame, screenScale: scale)
+            Browser.element(bundleID: $0, region: global, webArea: controls?.webAreaFrame, screenScale: capture.scale)
         } : nil
         let words = await wordsRead
+        return (controls, web, words)
+    }
 
+    @MainActor
+    private static func save(image: CGImage, rect: CGRect, screen: NSScreen, date: Date) async throws -> String {
+        let folder = try Store.newFolder(at: date)
+        let capture = try saveCapture(image: image, rect: rect, screen: screen, folder: folder, cropName: "crop.png", fullName: "full.png")
+        let read = await gather(capture)
         let shot = folder.appendingPathComponent("shot.md")
-        let text = ShotFile.text(folder: folder, date: date, target: target, url: web?.url ?? controls?.url,
-                                 region: fullRegion, fullSize: CGSize(width: full.width, height: full.height),
-                                 controls: controls, words: words, web: web)
+        let text = ShotFile.text(folder: folder, date: date, target: capture.target, url: read.web?.url ?? read.controls?.url,
+                                 region: capture.region, fullSize: capture.fullSize,
+                                 controls: read.controls, words: read.words, web: read.web)
         try text.write(to: shot, atomically: true, encoding: .utf8)
         return shot.path
     }
@@ -273,11 +458,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         menu.addItem(withTitle: "Press \(Settings.shortcut.label), drag, paste the path", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "Press \(Settings.markupShortcut.label) to mark up several spots, a note on each", action: nil, keyEquivalent: "")
         if !CGPreflightScreenCaptureAccess() {
             menu.addItem(withTitle: "⚠️ Needs Screen Recording permission…", action: #selector(openScreenRecordingSettings), keyEquivalent: "")
         }
         if hotKey == nil {
             menu.addItem(withTitle: "⚠️ The shortcut is taken by another app. Pick another in Settings…", action: #selector(openSettings), keyEquivalent: "")
+        }
+        if markupHotKey == nil {
+            menu.addItem(withTitle: "⚠️ The mark-up shortcut is taken by another app. Pick another in Settings…", action: #selector(openSettings), keyEquivalent: "")
         }
         if Settings.nameControls, !Accessibility.isAllowed {
             menu.addItem(withTitle: "⚠️ Needs Accessibility permission to name controls…", action: #selector(openAccessibilitySettings), keyEquivalent: "")
@@ -319,9 +508,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Quit Smugshot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
-    /// The close-up, 40 points high, for the Recent menu.
+    /// The close-up, 40 points high, for the Recent menu. For a marked-up smugshot, the first spot's.
     private func thumbnail(of folder: URL) -> NSImage? {
-        guard let image = NSImage(contentsOf: folder.appendingPathComponent("crop.png")), image.size.height > 0 else { return nil }
+        let crop = ["crop.png", Spot.files(1).crop].map { folder.appendingPathComponent($0) }.first { FileManager.default.fileExists(atPath: $0.path) }
+        guard let crop, let image = NSImage(contentsOf: crop), image.size.height > 0 else { return nil }
         let height: CGFloat = 40
         let width = min(96, image.size.width * height / image.size.height)
         let thumb = NSImage(size: NSSize(width: width, height: height), flipped: false) { rect in
@@ -345,7 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func revealRecent(_ sender: NSMenuItem) {
         guard let folder = sender.representedObject as? URL else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([folder.appendingPathComponent("crop.png")])
+        NSWorkspace.shared.activateFileViewerSelecting([folder.appendingPathComponent("shot.md")])
     }
 
     @objc private func toggleQuiet() { Settings.quiet.toggle() }

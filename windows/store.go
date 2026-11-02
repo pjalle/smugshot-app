@@ -85,12 +85,17 @@ func summary(dir string) string {
 		line = name[11:13] + ":" + name[13:15]
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "shot.md"))
+	gotApp, gotWindow := false, false // a marked-up smugshot lists one per spot; the first one names it
 	for _, l := range strings.Split(string(data), "\n") {
 		l = strings.TrimRight(l, "\r")
-		if strings.HasPrefix(l, "- App: ") {
+		if strings.HasPrefix(l, "- Spots: ") {
+			line += "  " + strings.TrimPrefix(l, "- Spots: ") + " spots"
+		} else if strings.HasPrefix(l, "- App: ") && !gotApp {
 			line += "  " + strings.TrimPrefix(l, "- App: ")
-		} else if strings.HasPrefix(l, "- Window: ") {
+			gotApp = true
+		} else if strings.HasPrefix(l, "- Window: ") && !gotWindow {
 			line += ": " + strings.TrimPrefix(l, "- Window: ")
+			gotWindow = true
 		}
 	}
 	if r := []rune(line); len(r) > 70 {
@@ -146,4 +151,85 @@ func ocrLines(out string) []string {
 		}
 	}
 	return lines
+}
+
+// A spot in a marked-up smugshot: one drag and the note typed for it. Crop and Full are file names in the
+// smugshot's folder, numbered from 01.
+type spot struct {
+	Crop, Full  string
+	Region      image.Rectangle // in the full picture
+	Size        image.Point     // of the full picture
+	App, Window string
+	Note        string
+	Text        []string // read from the close-up, or nil
+}
+
+// spotFiles are the file names for spot n, counted from 1.
+func spotFiles(n int) (crop, full string) {
+	return fmt.Sprintf("crop-%02d.png", n), fmt.Sprintf("full-%02d.png", n)
+}
+
+// markupText is shot.md for a marked-up smugshot: the spots in the order they were dragged, each with its
+// note, its two pictures and the text read from its close-up.
+func markupText(dir string, at time.Time, spots []spot) string {
+	n := len(spots)
+	word, each := "spots", "each"
+	if n == 1 {
+		word, each = "spot", "it"
+	}
+	lines := []string{
+		"# Smugshot",
+		fmt.Sprintf("The user marked %d %s on their screen, typed a note for %s, and pasted this path so you can see what they mean.", n, word, each),
+		"Take the spots in order. For each, read the note, open its close-up (sharp, the spot is outlined), then its whole screen (the spot outlined, the rest dimmed) when you need the surroundings.",
+		"",
+		"- When: " + at.Format("2006-01-02 15:04:05"),
+		fmt.Sprintf("- Spots: %d", n),
+	}
+	for i, s := range spots {
+		lines = append(lines, "", fmt.Sprintf("## Spot %d", i+1))
+		note := strings.TrimSpace(strings.ReplaceAll(s.Note, "\r\n", "\n"))
+		if note == "" {
+			lines = append(lines, "No note, only the spot.")
+		} else {
+			lines = append(lines, "The user's note:")
+			for _, l := range strings.Split(note, "\n") {
+				lines = append(lines, strings.TrimRight("> "+l, " "))
+			}
+		}
+		lines = append(lines, "",
+			"- Close-up: "+filepath.Join(dir, s.Crop),
+			"- Whole screen: "+filepath.Join(dir, s.Full))
+		if s.App != "" {
+			lines = append(lines, "- App: "+s.App)
+		}
+		if s.Window != "" {
+			lines = append(lines, "- Window: "+s.Window)
+		}
+		lines = append(lines, fmt.Sprintf("- Region in %s (pixels): x %d, y %d, w %d, h %d of %dx%d",
+			s.Full, s.Region.Min.X, s.Region.Min.Y, s.Region.Dx(), s.Region.Dy(), s.Size.X, s.Size.Y))
+		if len(s.Text) > 0 {
+			lines = append(lines, "", "### Text read from the close-up", "Recognised from the picture, so expect small mistakes.", "```")
+			lines = append(lines, s.Text...)
+			lines = append(lines, "```")
+		}
+	}
+	return strings.Join(lines, "\r\n") + "\r\n"
+}
+
+// markupHint is the line at the top of the drag layer while marking up: which spot is next and how to stop.
+// paste is the usual pasting line, or "".
+func markupHint(next int, paste string) string {
+	line := fmt.Sprintf("Marking up: drag spot %d · Esc when done", next)
+	if next == 1 {
+		line = "Marking up: drag the first spot · Esc to stop"
+	}
+	if paste != "" {
+		line += " · " + paste
+	}
+	return line
+}
+
+// noteLabelText is the line above the note box for spot n.
+func noteLabelText(n int) string {
+	return fmt.Sprintf("Spot %d: what about it?  Enter: next spot · Shift+Enter: new line\r\nCtrl+Enter: done · Esc: drop this spot", n)
 }

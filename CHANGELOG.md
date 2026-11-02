@@ -4,6 +4,13 @@ Newest first. Written for the person using the tool, not the person reading the 
 
 ## Unreleased
 
+## 0.5.0 (2026-11-02)
+
+Mark up several spots, a note on each, on the Mac and on Windows.
+
+- **Mark up several spots, a note on each.** A second shortcut, ⇧⌘2, for when one drag is not enough: drag a spot, type what you mean in the small box that opens beside it, press ↩ and drag the next one. ⌘↩, or Esc on the frozen screen, ends it. ⇧↩ is a new line in a note, and Esc in the box drops that spot. One folder holds a close-up and a whole screen for every spot, each with what was there, the web element and the text read from it as usual, and one shot.md lists the spots in order with your notes, so one paste gives the agent all of it. The plain gesture is unchanged. The shortcut is in Settings under the other one.
+- **Windows: mark up several spots, a note on each.** A second shortcut, Ctrl + Shift + 2, for when one drag is not enough: drag a spot, type what you mean in the small box that opens beside it, press Enter and drag the next one. Ctrl + Enter, or Esc on the dimmed screen, ends it. Shift + Enter is a new line in a note, and Esc in the box drops that spot. One folder holds a close-up and a whole screen for every spot, and one shot.md lists the spots in order with your notes, so one paste gives the agent all of it. The plain gesture is unchanged. The shortcut is in Settings next to the other one.
+
 ## 0.4.2 (2026-10-21)
 
 Windows reads the text in the close-up and can paste it for you: the first outside contribution.

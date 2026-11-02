@@ -7,6 +7,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
 
     private let shortcutButton = NSButton(title: "", target: nil, action: nil)
     private let shortcutNote = NSTextField(wrappingLabelWithString: "")
+    private let markupButton = NSButton(title: "", target: nil, action: nil)
+    private let markupNote = NSTextField(wrappingLabelWithString: "")
     private let folderField = NSTextField(labelWithString: "")
     private let folderNote = NSTextField(wrappingLabelWithString: "")
     private let keepPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -20,11 +22,16 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     private let soundPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let quietBox = NSButton(checkboxWithTitle: "No sound and no icon flash, for calls and screen shares", target: nil, action: nil)
 
+    /// Which shortcut is being recorded: the smugshot one or the mark-up one.
+    private enum Which { case shot, markup }
+
     /// While recording a shortcut, the next key press is taken and the local monitor is this.
     private var recording: Any?
+    private var recordingWhich = Which.shot
 
-    /// Set by AppDelegate: whether the current shortcut could be registered. Shown under the button.
+    /// Set by AppDelegate: whether the current shortcuts could be registered. Shown under the buttons.
     var shortcutTaken = false { didSet { if window != nil { load() } } }
+    var markupTaken = false { didSet { if window != nil { load() } } }
 
     func show() {
         if window == nil { build() }
@@ -52,6 +59,16 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         shortcutRow.orientation = .horizontal
         shortcutRow.spacing = 6
         small(shortcutNote)
+
+        // Mark-up shortcut
+        markupButton.target = self
+        markupButton.action = #selector(recordMarkupShortcut)
+        markupButton.setContentHuggingPriority(.required, for: .horizontal)
+        let markupDefault = NSButton(title: "Use Default", target: self, action: #selector(resetMarkupShortcut))
+        let markupRow = NSStackView(views: [markupButton, markupDefault])
+        markupRow.orientation = .horizontal
+        markupRow.spacing = 6
+        small(markupNote)
 
         // Save to
         folderField.lineBreakMode = .byTruncatingMiddle
@@ -117,6 +134,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         let grid = NSGridView(views: [
             [label("Shortcut:"), shortcutRow],
             [NSGridCell.emptyContentView, shortcutNote],
+            [label("Mark-up:"), markupRow],
+            [NSGridCell.emptyContentView, markupNote],
             [label("Save to:"), folderRow],
             [NSGridCell.emptyContentView, folderNote],
             [label("Keep for:"), keepPopUp],
@@ -135,8 +154,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         grid.columnSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).width = 460
-        for row in [2, 4, 6, 9, 11, 13, 14] { grid.row(at: row).topPadding = 10 }
-        for note in [shortcutNote, folderNote, keepNote, prefixNote, pasteNote, gatherNote] { note.preferredMaxLayoutWidth = 460 }
+        for row in [2, 4, 6, 8, 11, 13, 15, 16] { grid.row(at: row).topPadding = 10 }
+        for note in [shortcutNote, markupNote, folderNote, keepNote, prefixNote, pasteNote, gatherNote] { note.preferredMaxLayoutWidth = 460 }
         grid.translatesAutoresizingMaskIntoConstraints = false
 
         let content = NSView()
@@ -166,10 +185,18 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     // MARK: Showing the current values
 
     private func load() {
-        if recording == nil { shortcutButton.title = Settings.shortcut.label }
-        shortcutNote.stringValue = shortcutTaken
-            ? "⚠️ That shortcut is taken by another app or by macOS. Pick another."
-            : "Press it once, let go, then drag. It needs Command, Control or Option."
+        if recording == nil || recordingWhich != .shot { shortcutButton.title = Settings.shortcut.label }
+        if recording == nil || recordingWhich != .markup { markupButton.title = Settings.markupShortcut.label }
+        if recording == nil || recordingWhich != .shot {
+            shortcutNote.stringValue = shortcutTaken
+                ? "⚠️ That shortcut is taken by another app or by macOS. Pick another."
+                : "Press it once, let go, then drag. It needs Command, Control or Option."
+        }
+        if recording == nil || recordingWhich != .markup {
+            markupNote.stringValue = markupTaken
+                ? "⚠️ That shortcut is taken by another app or by macOS. Pick another."
+                : "Several spots, a note on each: drag a spot, type, ↩ for the next, ⌘↩ when done. Esc on the frozen screen also ends it."
+        }
         folderField.stringValue = (Settings.folder.path as NSString).abbreviatingWithTildeInPath
         folderNote.stringValue = Settings.usesDefaultFolder
             ? "Private to you, skipped by Spotlight and Time Machine."
@@ -220,19 +247,31 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     // MARK: Shortcut
 
     /// Click the button, press the keys. Esc or clicking again keeps the old shortcut.
-    @objc private func recordShortcut() {
+    @objc private func recordShortcut() { record(.shot) }
+
+    @objc private func recordMarkupShortcut() { record(.markup) }
+
+    private func record(_ which: Which) {
         if recording != nil { stopRecording(); return }
-        shortcutButton.title = "Press keys…"
-        shortcutNote.stringValue = "Press the new shortcut. Esc keeps the old one."
+        recordingWhich = which
+        let button = which == .shot ? shortcutButton : markupButton
+        let note = which == .shot ? shortcutNote : markupNote
+        button.title = "Press keys…"
+        note.stringValue = "Press the new shortcut. Esc keeps the old one."
         recording = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             if event.keyCode == 53 { self.stopRecording(); return nil } // Esc
             guard let shortcut = Shortcut(event: event) else {
-                self.shortcutNote.stringValue = "Add Command, Control or Option; a plain key cannot be taken from every app."
+                note.stringValue = "Add Command, Control or Option; a plain key cannot be taken from every app."
+                return nil
+            }
+            // One key cannot do both.
+            if shortcut == (which == .shot ? Settings.markupShortcut : Settings.shortcut) {
+                note.stringValue = which == .shot ? "That is the mark-up shortcut. Pick another." : "That is the smugshot shortcut. Pick another for marking up."
                 return nil
             }
             self.stopRecording()
-            Settings.shortcut = shortcut
+            if which == .shot { Settings.shortcut = shortcut } else { Settings.markupShortcut = shortcut }
             self.load()
             return nil
         }
@@ -247,6 +286,12 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     @objc private func resetShortcut() {
         stopRecording()
         Settings.shortcut = Settings.defaultShortcut
+        load()
+    }
+
+    @objc private func resetMarkupShortcut() {
+        stopRecording()
+        Settings.markupShortcut = Settings.defaultMarkupShortcut
         load()
     }
 

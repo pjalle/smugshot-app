@@ -90,7 +90,8 @@ struct Target {
 }
 
 enum ShotFile {
-    /// One line for the menu, read back from shot.md: "14:32  Brave: Quill".
+    /// One line for the menu, read back from shot.md: "14:32  Brave: Quill", or "14:32  3 spots  Brave: Quill"
+    /// for a marked-up smugshot, named after its first spot.
     static func summary(folder: URL) -> String {
         let name = folder.lastPathComponent // 2026-09-17-143207[-n]
         let time = name.count >= 17 ? String(name.dropFirst(11).prefix(2)) + ":" + String(name.dropFirst(13).prefix(2)) : name
@@ -99,6 +100,7 @@ enum ShotFile {
             text.split(separator: "\n").first { $0.hasPrefix("- \(key): ") }.map { String($0.dropFirst(key.count + 4)) }
         }
         var line = time
+        if let spots = field("Spots") { line += "  \(spots) spots" }
         if let app = field("App") { line += "  " + app }
         if let window = field("Window") { line += ": " + window }
         return line.count > 70 ? String(line.prefix(69)) + "…" : line
